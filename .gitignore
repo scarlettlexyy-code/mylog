@@ -1,0 +1,34 @@
+# Next.js build and cache
+.next/
+out/
+build/
+dist/
+
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Environment files and credentials (CRITICAL: NEVER COMMIT SECRETS)
+.env
+.env*.local
+*.pem
+credentials*.json
+service-account*.json
+service-account-key.json
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# OS and Editor files
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.vscode/
+.idea/
+
+# PWA temporary build files
+*.log

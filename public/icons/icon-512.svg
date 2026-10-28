@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="96" fill="#0B1C30"/>
+  <circle cx="406" cy="308" r="22" fill="#FE932C"/>
+  <text x="86" y="330" font-family="Plus Jakarta Sans, system-ui, sans-serif" font-size="140" font-weight="800" fill="#FFFFFF" letter-spacing="-6">MYlog</text>
+  <path d="M106 144 H406" stroke="#FE932C" stroke-width="10" stroke-linecap="round"/>
+</svg>
