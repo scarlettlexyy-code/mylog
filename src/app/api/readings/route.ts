@@ -85,6 +85,7 @@ export async function POST(req: NextRequest) {
         electricityMeter: electricityMeter != null ? parseFloat(electricityMeter) : null,
         waterMeter: waterMeter != null ? parseFloat(waterMeter) : null,
         gasMeter: gasMeter != null ? parseFloat(gasMeter) : null,
+        recordedBy: userEmail,
       },
       userEmail,
       reason

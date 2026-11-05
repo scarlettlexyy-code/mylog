@@ -20,6 +20,7 @@ export async function POST(req: NextRequest) {
         date,
         solarLiters: parseFloat(solarLiters),
         gensetStatus: gensetStatus || 'Running Test Normal',
+        recordedBy: userEmail,
       },
       userEmail
     );

@@ -32,6 +32,7 @@ export async function POST(req: NextRequest) {
       {
         date,
         totalAmount: numericAmount,
+        recordedBy: userEmail,
       },
       userEmail
     );

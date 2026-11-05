@@ -324,7 +324,7 @@ export async function getMeterReadings(): Promise<MeterReading[]> {
 }
 
 export async function saveMeterReading(
-  reading: Omit<MeterReading, 'id' | 'recordedAt' | 'version' | 'isArchived'>,
+  reading: Omit<MeterReading, 'id' | 'recordedAt' | 'version' | 'isArchived' | 'recordedBy'> & { recordedBy?: string },
   userEmail: string = 'supervisor@agranusavilla.com',
   reason?: string
 ): Promise<MeterReading> {
@@ -415,7 +415,7 @@ export async function getFuelReadings(): Promise<FuelReading[]> {
 }
 
 export async function saveFuelReading(
-  fuel: Omit<FuelReading, 'id' | 'recordedAt' | 'version' | 'isArchived'>,
+  fuel: Omit<FuelReading, 'id' | 'recordedAt' | 'version' | 'isArchived' | 'recordedBy'> & { recordedBy?: string },
   userEmail: string = 'supervisor@agranusavilla.com'
 ): Promise<FuelReading> {
   const existingIdx = memoryFuelReadings.findIndex((r) => r.date === fuel.date);
@@ -466,7 +466,7 @@ export async function getOperatingExpenses(): Promise<OperatingExpenseReading[]>
 }
 
 export async function saveOperatingExpense(
-  opex: Omit<OperatingExpenseReading, 'id' | 'recordedAt' | 'version' | 'isArchived'>,
+  opex: Omit<OperatingExpenseReading, 'id' | 'recordedAt' | 'version' | 'isArchived' | 'recordedBy'> & { recordedBy?: string },
   userEmail: string = 'supervisor@agranusavilla.com'
 ): Promise<OperatingExpenseReading> {
   const existingIdx = memoryOpexReadings.findIndex((r) => r.date === opex.date);
