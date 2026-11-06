@@ -1,599 +1,291 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Header } from '@/components/Header';
 import { BottomNav } from '@/components/BottomNav';
-import { formatRupiah } from '@/lib/calculations';
+
+const months = Array.from({ length: 12 }, (_, i) => {
+  const d = new Date(2026, i, 1);
+  return {
+    value: `2026-${String(i + 1).padStart(2, '0')}`,
+    label: d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
+  };
+});
+
+function getCurrentMonth() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+}
+
+const CategoryBar = ({
+  label, actual, budget, unit, color, icon,
+}: {
+  label: string; actual: number; budget: number; unit: string; color: string; icon: React.ReactNode;
+}) => {
+  const pct = budget > 0 ? Math.min((actual / budget) * 100, 100) : 0;
+  const isOver = pct >= 85;
+  const formatVal = (n: number) =>
+    unit === 'IDR'
+      ? `Rp ${n >= 1_000_000 ? (n / 1_000_000).toFixed(1) + 'M' : Math.round(n / 1000) + 'K'}`
+      : `${n.toLocaleString()} ${unit}`;
+
+  return (
+    <div className="py-3 border-b border-gray-50 last:border-0">
+      <div className="flex items-center gap-3 mb-2">
+        <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${color.replace('bg-', 'bg-').replace('-400', '-50').replace('-500', '-50')}`}>
+          {icon}
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-gray-900">{label}</span>
+            <span className={`text-xs font-black ${isOver ? 'text-red-500' : 'text-gray-600'}`}>
+              {Math.round(pct)}%
+            </span>
+          </div>
+          <div className="flex items-center justify-between mt-0.5">
+            <span className="text-[10px] text-gray-400">{formatVal(actual)} / {formatVal(budget)}</span>
+          </div>
+        </div>
+      </div>
+      <div className="h-2 bg-gray-100 rounded-full overflow-hidden ml-11">
+        <div
+          className={`h-full rounded-full transition-all duration-500 ${isOver ? 'bg-red-400' : color}`}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+    </div>
+  );
+};
 
 export default function AnggaranPage() {
-  const [activeMonth, setActiveMonth] = useState('Oktober 2026');
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
-  const [saveSuccess, setSaveSuccess] = useState(false);
+  const [month, setMonth] = useState(getCurrentMonth());
+  const [budget, setBudget] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
 
-  // Budget state (IDR)
-  const [budgets, setBudgets] = useState({
-    listrik: 15000000,
-    air: 4500000,
-    gas: 3500000,
-    solar: 7000000,
-    opex: 20000000,
-  });
+  // Form state
+  const [elecB, setElecB] = useState('');
+  const [waterB, setWaterB] = useState('');
+  const [gasB, setGasB] = useState('');
+  const [fuelB, setFuelB] = useState('');
+  const [opexB, setOpexB] = useState('');
+  const [mode, setMode] = useState<'sum_categories' | 'manual_total'>('sum_categories');
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
 
-  const totalBudget = Object.values(budgets).reduce((a, b) => a + b, 0);
+  useEffect(() => {
+    setLoading(true);
+    fetch(`/api/budgets?month=${month}`)
+      .then((r) => r.json())
+      .then((j) => {
+        setBudget(j.budget || null);
+        if (j.budget) {
+          setElecB(String(j.budget.electricityBudget || ''));
+          setWaterB(String(j.budget.waterBudget || ''));
+          setGasB(String(j.budget.gasBudget || ''));
+          setFuelB(String(j.budget.fuelBudget || ''));
+          setOpexB(String(j.budget.opexBudget || ''));
+          setMode(j.budget.mode || 'sum_categories');
+        }
+        setLoading(false);
+      })
+      .catch(() => setLoading(false));
+  }, [month]);
 
-  // Actual spendings (matching Stitch mockup)
-  const spendings = {
-    listrik: 11200000,
-    air: 3900000,
-    gas: 2200000,
-    solar: 5800000,
-    opex: 11100000,
-  };
+  const totalBudget =
+    (parseFloat(elecB) || 0) +
+    (parseFloat(waterB) || 0) +
+    (parseFloat(gasB) || 0) +
+    (parseFloat(fuelB) || 0) +
+    (parseFloat(opexB) || 0);
 
-  const totalSpent = Object.values(spendings).reduce((a, b) => a + b, 0);
-  const totalRemaining = totalBudget - totalSpent;
-  const overallPercent = ((totalSpent / totalBudget) * 100).toFixed(1);
-
-  const categories = [
-    {
-      key: 'listrik',
-      title: 'Listrik (PLN)',
-      icon: 'bolt',
-      budget: budgets.listrik,
-      spent: spendings.listrik,
-      percent: ((spendings.listrik / budgets.listrik) * 100).toFixed(1),
-      status: 'Aman',
-      statusClass: 'text-on-surface-variant bg-surface-container',
-      barClass: 'bg-primary',
-    },
-    {
-      key: 'air',
-      title: 'Air Bersih (PDAM & Truk)',
-      icon: 'water_drop',
-      budget: budgets.air,
-      spent: spendings.air,
-      percent: ((spendings.air / budgets.air) * 100).toFixed(1),
-      status: 'Waspada',
-      statusClass: 'text-secondary-fixed-variant bg-secondary-container/20 font-bold',
-      barClass: 'bg-secondary-container',
-    },
-    {
-      key: 'gas',
-      title: 'Gas LPG (Dapur & Boiler)',
-      icon: 'mode_heat',
-      budget: budgets.gas,
-      spent: spendings.gas,
-      percent: ((spendings.gas / budgets.gas) * 100).toFixed(1),
-      status: 'Aman',
-      statusClass: 'text-on-surface-variant bg-surface-container',
-      barClass: 'bg-primary',
-    },
-    {
-      key: 'solar',
-      title: 'Fuel Solar Genset',
-      icon: 'local_gas_station',
-      budget: budgets.solar,
-      spent: spendings.solar,
-      percent: ((spendings.solar / budgets.solar) * 100).toFixed(1),
-      status: 'Waspada',
-      statusClass: 'text-secondary-fixed-variant bg-secondary-container/20 font-bold',
-      barClass: 'bg-secondary-container',
-    },
-    {
-      key: 'opex',
-      title: 'Pengeluaran Operasional',
-      icon: 'receipt_long',
-      budget: budgets.opex,
-      spent: spendings.opex,
-      percent: ((spendings.opex / budgets.opex) * 100).toFixed(1),
-      status: 'Aman',
-      statusClass: 'text-on-surface-variant bg-surface-container',
-      barClass: 'bg-primary',
-    },
-  ];
-
-  const handleSaveToSheets = async () => {
-    setIsSaving(true);
+  const handleSave = async () => {
+    setSaving(true);
     try {
       await fetch('/api/budgets', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          month: '2026-10',
-          mode: 'sum_categories',
-          electricityBudget: budgets.listrik,
-          waterBudget: budgets.air,
-          gasBudget: budgets.gas,
-          fuelBudget: budgets.solar,
-          opexBudget: budgets.opex,
+          month,
+          mode,
+          electricityBudget: parseFloat(elecB) || 0,
+          waterBudget: parseFloat(waterB) || 0,
+          gasBudget: parseFloat(gasB) || 0,
+          fuelBudget: parseFloat(fuelB) || 0,
+          opexBudget: parseFloat(opexB) || 0,
           totalBudget,
+          userEmail: 'supervisor@agranusavilla.com',
         }),
       });
-      setSaveSuccess(true);
-      setTimeout(() => {
-        setSaveSuccess(false);
-        setIsSaving(false);
-      }, 2000);
-    } catch {
-      setIsSaving(false);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
+    } finally {
+      setSaving(false);
     }
   };
 
+  const monthLabel = months.find((m) => m.value === month)?.label || month;
+
+  const categories = [
+    {
+      label: 'Electricity',
+      actual: budget?.electricityBudget ?? 0,
+      budget: parseFloat(elecB) || 0,
+      unit: 'IDR',
+      color: 'bg-yellow-400',
+      icon: <svg viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4 text-yellow-500"><path d="M7 2v11h3v9l7-12h-4l4-8z"/></svg>,
+    },
+    {
+      label: 'Water',
+      actual: budget?.waterBudget ?? 0,
+      budget: parseFloat(waterB) || 0,
+      unit: 'IDR',
+      color: 'bg-blue-400',
+      icon: <svg viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4 text-blue-500"><path d="M12 2c-5.33 4.55-8 8.48-8 11.8 0 4.98 3.8 8.2 8 8.2s8-3.22 8-8.2c0-3.32-2.67-7.25-8-11.8z"/></svg>,
+    },
+    {
+      label: 'Gas',
+      actual: budget?.gasBudget ?? 0,
+      budget: parseFloat(gasB) || 0,
+      unit: 'IDR',
+      color: 'bg-teal-400',
+      icon: <svg viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4 text-teal-500"><path d="M17 8C8 10 5.9 16.17 3.82 21.34L5.71 22l1-2.3A4.49 4.49 0 0 0 8 20c4 0 4-2 8-2s4 2 8 2v-2c-4 0-4-2-8-2-1.13 0-1.9.16-2.53.33C14.28 11.86 17 10 17 8z"/></svg>,
+    },
+    {
+      label: 'Solar Fuel',
+      actual: budget?.fuelBudget ?? 0,
+      budget: parseFloat(fuelB) || 0,
+      unit: 'IDR',
+      color: 'bg-orange-400',
+      icon: <svg viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4 text-orange-500"><path d="M19.77 7.23l.01-.01-3.72-3.72L15 4.56l2.11 2.11c-.94.36-1.61 1.26-1.61 2.33 0 1.38 1.12 2.5 2.5 2.5.36 0 .69-.08 1-.21v7.21c0 .55-.45 1-1 1s-1-.45-1-1V14c0-1.1-.9-2-2-2h-1V5c0-1.1-.9-2-2-2H6c-1.1 0-2 .9-2 2v16h10v-7.5h1.5v5c0 1.38 1.12 2.5 2.5 2.5s2.5-1.12 2.5-2.5V9c0-.69-.28-1.32-.73-1.77zM18 10c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1zM8 18v-4.5H6.5V18H5V5h8v13H8z"/></svg>,
+    },
+    {
+      label: 'Operational Expense',
+      actual: budget?.opexBudget ?? 0,
+      budget: parseFloat(opexB) || 0,
+      unit: 'IDR',
+      color: 'bg-purple-400',
+      icon: <svg viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4 text-purple-500"><path d="M11.8 10.9c-2.27-.59-3-1.2-3-2.15 0-1.09 1.01-1.85 2.7-1.85 1.78 0 2.44.85 2.5 2.1h2.21c-.07-1.72-1.12-3.3-3.21-3.81V3h-3v2.16c-1.94.42-3.5 1.68-3.5 3.61 0 2.31 1.91 3.46 4.7 4.13 2.5.6 3 1.48 3 2.41 0 .69-.49 1.79-2.7 1.79-2.06 0-2.87-.92-2.98-2.1h-2.2c.12 2.19 1.76 3.42 3.68 3.83V21h3v-2.15c1.95-.37 3.5-1.5 3.5-3.55 0-2.84-2.43-3.81-4.7-4.4z"/></svg>,
+    },
+  ];
+
+  const formatRp = (n: number) =>
+    n >= 1_000_000 ? `Rp ${(n / 1_000_000).toFixed(1)}M` : `Rp ${Math.round(n / 1000)}K`;
+
   return (
-    <div className="bg-surface min-h-screen pb-28">
-      <Header title="Anggaran" currentDate="26 Okt 2026" />
+    <div className="bg-gray-50 min-h-screen pb-24">
+      <Header
+        badge="Fiscal Control · Live Feed"
+        badgeColor="bg-green-100 text-green-700"
+        title="Operational Budget & Expenses"
+        subtitle="Monthly allocation tracker for all utility & cost categories."
+        rightElement={
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="flex items-center gap-1.5 bg-blue-600 text-white px-3 py-2 rounded-full text-xs font-bold shadow-md shadow-blue-100 disabled:opacity-60 active:scale-95 transition-transform"
+          >
+            {saving ? (
+              <span className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+            ) : saved ? '✅' : (
+              <svg viewBox="0 0 24 24" fill="currentColor" className="w-3.5 h-3.5">
+                <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/>
+              </svg>
+            )}
+            {saved ? 'Saved!' : '+ Save Budget'}
+          </button>
+        }
+      />
 
-      <main className="flex flex-col relative w-full pt-28 px-margin max-w-md mx-auto">
-        <div className="flex flex-col w-full gap-gutter pb-space-lg pt-2">
-          {/* Sub-header Bar: Periode & Quick CTA */}
-          <div className="flex items-center justify-between gap-space-sm bg-surface-container-lowest p-space-md rounded-xl shadow-sm border border-surface-container-high/40">
-            <div className="flex items-center gap-2 min-w-0">
-              <div className="w-9 h-9 rounded-lg bg-surface-container flex items-center justify-center shrink-0 text-on-surface">
-                <span className="material-symbols-outlined text-[20px]">calendar_month</span>
-              </div>
-              <div className="flex flex-col min-w-0">
-                <span className="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider">
-                  Periode Aktif
-                </span>
-                <button
-                  className="flex items-center gap-1 font-title-md text-title-md text-on-surface text-left truncate active:scale-95 transition-transform"
-                  type="button"
-                >
-                  <span className="font-bold">{activeMonth}</span>
-                  <span className="material-symbols-outlined text-[16px] text-on-surface-variant">
-                    expand_more
-                  </span>
-                </button>
-              </div>
-            </div>
-            <button
-              className="min-h-[40px] px-3.5 py-1.5 rounded-full bg-primary text-on-primary font-title-sm text-title-sm flex items-center gap-1.5 shrink-0 shadow-sm active:scale-95 transition-transform"
-              onClick={() => setIsModalOpen(true)}
-              type="button"
+      <main className="max-w-md mx-auto px-4 pt-5">
+        {/* Month Selector */}
+        <div className="flex items-center gap-3 mb-4">
+          <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-full px-3 py-2 shadow-sm flex-1">
+            <svg viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4 text-blue-500">
+              <path d="M20 3h-1V1h-2v2H7V1H5v2H4c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 18H4V8h16v13z"/>
+            </svg>
+            <select
+              value={month}
+              onChange={(e) => setMonth(e.target.value)}
+              className="text-sm font-bold text-gray-900 bg-transparent focus:outline-none flex-1"
             >
-              <span className="material-symbols-outlined text-[16px]">add_circle</span>
-              <span>Atur Pagu Baru</span>
-            </button>
+              {months.map((m) => (
+                <option key={m.value} value={m.value}>{m.label}</option>
+              ))}
+            </select>
           </div>
+        </div>
 
-          {/* Note PRD Kebijakan Manual Bulanan */}
-          <div className="flex items-start gap-2.5 px-3.5 py-2.5 rounded-lg bg-surface-container-low text-on-surface-variant border border-surface-container/60">
-            <span className="material-symbols-outlined text-[18px] text-secondary shrink-0 mt-0.5">
-              verified_user
-            </span>
-            <span className="font-body-sm text-body-sm leading-tight">
-              Sesuai <strong>PRD Bagian 12</strong>: Pagu anggaran ditetapkan mandiri tiap bulan secara eksplisit tanpa otomatisasi duplikasi riwayat.
-            </span>
+        {/* Summary Cards */}
+        <div className="grid grid-cols-2 gap-3 mb-4">
+          <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-50">
+            <div className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider mb-1">Monthly Budget</div>
+            <div className="text-xl font-black text-gray-900">{formatRp(totalBudget)}</div>
+            <div className="text-[10px] text-blue-500 font-semibold mt-1">Allocated for {monthLabel.split(' ')[0]}</div>
           </div>
+          <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-50">
+            <div className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider mb-1">Categories</div>
+            <div className="text-xl font-black text-gray-900">5</div>
+            <div className="text-[10px] text-green-500 font-semibold mt-1">Active cost centers</div>
+          </div>
+        </div>
 
-          {/* Ringkasan Pagu Keseluruhan */}
-          <div className="bg-surface-container-lowest p-space-lg rounded-xl shadow-sm flex flex-col gap-space-md relative overflow-hidden border border-surface-container-high/40">
-            <div className="flex items-center justify-between">
-              <div className="flex flex-col">
-                <span className="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider">
-                  Total Pagu Operasional
-                </span>
-                <span className="font-headline-sm text-headline-sm text-on-surface font-extrabold mt-0.5">
-                  {formatRupiah(totalBudget)}
-                </span>
-              </div>
-              <div className="px-2.5 py-1 rounded-full bg-surface-container text-on-surface-variant font-label-badge text-label-badge flex items-center gap-1 border border-surface-container-high/60">
-                <span className="w-1.5 h-1.5 rounded-full bg-secondary-container"></span>
-                <span>Realisasi {overallPercent}%</span>
-              </div>
+        {/* Category Allocation Input */}
+        <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-50 mb-4">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h3 className="text-sm font-black text-gray-900">Category Allocation</h3>
+              <p className="text-[10px] text-gray-400 mt-0.5">Set monthly budget per category (IDR)</p>
             </div>
+            <span className="text-[10px] font-bold bg-blue-50 text-blue-600 px-2 py-1 rounded-full">5 Categories</span>
+          </div>
 
-            {/* Main Progress Bar */}
-            <div className="flex flex-col gap-1.5">
-              <div className="w-full h-3 rounded-full bg-surface-container overflow-hidden p-0.5">
-                <div
-                  className="h-full rounded-full bg-primary transition-all duration-500"
-                  style={{ width: `${Math.min(100, parseFloat(overallPercent))}%` }}
+          {[
+            { label: 'Electricity', value: elecB, onChange: setElecB, color: 'focus:border-yellow-400 focus:ring-yellow-100' },
+            { label: 'Water', value: waterB, onChange: setWaterB, color: 'focus:border-blue-400 focus:ring-blue-100' },
+            { label: 'Gas', value: gasB, onChange: setGasB, color: 'focus:border-teal-400 focus:ring-teal-100' },
+            { label: 'Solar Fuel', value: fuelB, onChange: setFuelB, color: 'focus:border-orange-400 focus:ring-orange-100' },
+            { label: 'Operational Expense', value: opexB, onChange: setOpexB, color: 'focus:border-purple-400 focus:ring-purple-100' },
+          ].map((item) => (
+            <div key={item.label} className="flex items-center gap-3 mb-3 last:mb-0">
+              <span className="text-xs font-semibold text-gray-600 w-32 shrink-0">{item.label}</span>
+              <div className="relative flex-1">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-gray-400">Rp</span>
+                <input
+                  type="number"
+                  value={item.value}
+                  onChange={(e) => item.onChange(e.target.value)}
+                  placeholder="0"
+                  className={`w-full h-10 bg-gray-50 border border-gray-200 rounded-xl pl-8 pr-3 text-sm font-semibold text-gray-900 placeholder-gray-300 focus:outline-none focus:ring-2 transition-all ${item.color}`}
                 />
               </div>
-              <div className="flex items-center justify-between font-label-caps text-label-caps text-on-surface-variant pt-0.5">
-                <span>0%</span>
-                <span className="text-secondary font-bold">Batas Aman 80%</span>
-                <span>100%</span>
-              </div>
             </div>
+          ))}
 
-            {/* Quick Stat Split */}
-            <div className="grid grid-cols-2 gap-space-sm pt-1">
-              <div className="flex flex-col p-2.5 rounded-lg bg-surface-container-low border border-surface-container">
-                <span className="font-label-caps text-label-caps text-on-surface-variant">
-                  Sudah Terpakai
-                </span>
-                <span className="font-metric-sm text-metric-sm text-on-surface mt-0.5 font-bold">
-                  {formatRupiah(totalSpent)}
-                </span>
-                <span className="font-body-sm text-body-sm text-on-surface-variant">
-                  Hingga hari ke-26
-                </span>
-              </div>
-              <div className="flex flex-col p-2.5 rounded-lg bg-surface-container-low border border-surface-container">
-                <span className="font-label-caps text-label-caps text-on-surface-variant">
-                  Sisa Alokasi
-                </span>
-                <span className="font-metric-sm text-metric-sm text-on-surface mt-0.5 font-bold">
-                  {formatRupiah(totalRemaining)}
-                </span>
-                <span className="font-body-sm text-body-sm text-secondary font-semibold">
-                  Tersedia aman
-                </span>
-              </div>
-            </div>
+          <div className="mt-4 pt-4 border-t border-gray-100 flex items-center justify-between">
+            <span className="text-sm font-bold text-gray-900">Total Budget</span>
+            <span className="text-sm font-black text-blue-600">{formatRp(totalBudget)}</span>
           </div>
+        </div>
 
-          {/* Rincian 5 Kategori Anggaran */}
-          <div className="flex flex-col gap-space-xs">
-            <div className="flex items-center justify-between px-1">
-              <span className="font-title-md text-title-md text-on-surface font-bold">
-                Alokasi per Kategori
-              </span>
-              <span className="font-label-badge text-label-badge text-on-surface-variant">
-                5 Sektor
-              </span>
-            </div>
-
-            <div className="flex flex-col gap-gutter">
-              {categories.map((cat) => (
-                <div
-                  key={cat.key}
-                  className="bg-surface-container-lowest p-space-md rounded-xl shadow-sm flex flex-col gap-space-sm border border-surface-container-high/40"
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-8 h-8 rounded-lg bg-surface-container flex items-center justify-center shrink-0 text-on-surface">
-                        <span className="material-symbols-outlined text-[18px]">
-                          {cat.icon}
-                        </span>
-                      </div>
-                      <div className="flex flex-col">
-                        <span className="font-title-sm text-title-sm text-on-surface font-bold">
-                          {cat.title}
-                        </span>
-                        <span className="font-body-sm text-body-sm text-on-surface-variant">
-                          Pagu: {formatRupiah(cat.budget)}
-                        </span>
-                      </div>
-                    </div>
-                    <span
-                      className={`px-2 py-0.5 rounded-full font-label-badge text-label-badge ${cat.statusClass}`}
-                    >
-                      {cat.percent}% • {cat.status}
-                    </span>
-                  </div>
-
-                  <div className="w-full h-2 rounded-full bg-surface-container overflow-hidden">
-                    <div
-                      className={`h-full rounded-full ${cat.barClass}`}
-                      style={{ width: `${Math.min(100, parseFloat(cat.percent))}%` }}
-                    />
-                  </div>
-
-                  <div className="flex items-center justify-between font-body-sm text-body-sm text-on-surface-variant">
-                    <span>
-                      Terpakai: <strong className="text-on-surface">{formatRupiah(cat.spent)}</strong>
-                    </span>
-                    <span>
-                      Sisa:{' '}
-                      <strong className="text-on-surface">
-                        {formatRupiah(cat.budget - cat.spent)}
-                      </strong>
-                    </span>
-                  </div>
-                </div>
+        {/* Category Progress Bars */}
+        <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-50 mb-4">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-sm font-black text-gray-900">Allocation Progress</h3>
+            <span className="text-[10px] text-gray-400">{monthLabel}</span>
+          </div>
+          {loading ? (
+            <div className="space-y-3">
+              {[1,2,3,4,5].map(i => (
+                <div key={i} className="h-10 bg-gray-100 rounded-xl animate-pulse" />
               ))}
             </div>
-          </div>
-
-          {/* Deteksi Lonjakan Biaya (PRD Bagian 12) */}
-          <div className="flex flex-col gap-space-sm">
-            <div className="flex items-center justify-between px-1">
-              <span className="font-title-md text-title-md text-on-surface font-bold flex items-center gap-1.5">
-                Deteksi Lonjakan Biaya
-                <span className="material-symbols-outlined text-secondary text-[18px]">
-                  trending_up
-                </span>
-              </span>
-              <span className="font-label-badge text-label-badge text-on-surface-variant">
-                PRD Bag. 12
-              </span>
-            </div>
-
-            {/* Active Spike Warning Banner */}
-            <div className="bg-error-container/60 rounded-xl p-space-md flex flex-col gap-2.5 border border-error/20">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <span className="material-symbols-outlined text-error text-[20px]">
-                    warning
-                  </span>
-                  <span className="font-title-sm text-title-sm text-on-error-container font-bold">
-                    Peringatan Lonjakan Aktif
-                  </span>
-                </div>
-                <span className="font-label-badge text-label-badge bg-surface-container-lowest text-error px-2 py-0.5 rounded">
-                  Hari Ini
-                </span>
-              </div>
-
-              <div className="flex flex-col gap-1">
-                <span className="font-title-sm text-title-sm text-on-error-container font-semibold">
-                  Lonjakan Listrik Terdeteksi
-                </span>
-                <p className="font-body-sm text-body-sm text-on-error-container leading-snug">
-                  Kenaikan harian melampaui ambang ganda: <strong className="text-error">+24,5%</strong>{' '}
-                  (ambang +20%) dan <strong className="text-error">+Rp 620.000</strong> (ambang +Rp 500.000) dibandingkan rata-rata 7 hari villa.
-                </p>
-              </div>
-
-              <button
-                className="self-end px-3 py-1.5 rounded-lg bg-surface-container-lowest text-on-surface font-label-badge text-label-badge shadow-sm active:scale-95 transition-transform"
-                onClick={() => alert('Detail Investigasi: Lonjakan terjadi pada jam operasional AC chiller sentral villa utama.')}
-                type="button"
-              >
-                Investigasi Beban
-              </button>
-            </div>
-
-            {/* Kriteria Algoritma Validasi Box */}
-            <div className="bg-surface-container-lowest rounded-xl p-space-md flex flex-col gap-space-sm shadow-sm border border-surface-container-high/40">
-              <div className="flex items-start gap-2">
-                <span className="material-symbols-outlined text-[18px] text-on-surface-variant shrink-0 mt-0.5">
-                  info
-                </span>
-                <div className="flex flex-col gap-1">
-                  <span className="font-title-sm text-title-sm text-on-surface font-bold">
-                    Kriteria Algoritma Validasi
-                  </span>
-                  <p className="font-body-sm text-body-sm text-on-surface-variant leading-snug">
-                    Peringatan anomali lonjakan <strong>HANYA</strong> diaktifkan jika parameter kenaikan persentase <em>DAN</em> nominal absolut sama-sama terlampaui terhadap baseline (rata-rata bergerak 7 hari / hari sebelumnya). Ini meminimalkan alarm palsu pada pemakaian kecil.
-                  </p>
-                </div>
-              </div>
-
-              <span className="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider pt-1">
-                Aturan Pemicu Ambang (Thresholds)
-              </span>
-
-              <div className="grid grid-cols-2 gap-2">
-                <div className="p-2.5 rounded-lg bg-surface-container-low flex flex-col gap-0.5 border border-surface-container">
-                  <div className="flex items-center justify-between">
-                    <span className="font-title-sm text-title-sm font-bold text-on-surface">
-                      Listrik
-                    </span>
-                    <span className="material-symbols-outlined text-[16px] text-secondary">
-                      bolt
-                    </span>
-                  </div>
-                  <span className="font-body-sm text-body-sm text-on-surface-variant">
-                    Syarat Ganda:
-                  </span>
-                  <span className="font-label-badge text-label-badge text-on-surface font-semibold">
-                    &gt; +20% &amp; &gt; Rp 500rb
-                  </span>
-                </div>
-
-                <div className="p-2.5 rounded-lg bg-surface-container-low flex flex-col gap-0.5 border border-surface-container">
-                  <div className="flex items-center justify-between">
-                    <span className="font-title-sm text-title-sm font-bold text-on-surface">
-                      Air PDAM
-                    </span>
-                    <span className="material-symbols-outlined text-[16px] text-tertiary-container">
-                      water_drop
-                    </span>
-                  </div>
-                  <span className="font-body-sm text-body-sm text-on-surface-variant">
-                    Syarat Ganda:
-                  </span>
-                  <span className="font-label-badge text-label-badge text-on-surface font-semibold">
-                    &gt; +20% &amp; &gt; Rp 100rb
-                  </span>
-                </div>
-
-                <div className="p-2.5 rounded-lg bg-surface-container-low flex flex-col gap-0.5 border border-surface-container">
-                  <div className="flex items-center justify-between">
-                    <span className="font-title-sm text-title-sm font-bold text-on-surface">
-                      Gas LPG
-                    </span>
-                    <span className="material-symbols-outlined text-[16px] text-secondary">
-                      mode_heat
-                    </span>
-                  </div>
-                  <span className="font-body-sm text-body-sm text-on-surface-variant">
-                    Syarat Ganda:
-                  </span>
-                  <span className="font-label-badge text-label-badge text-on-surface font-semibold">
-                    &gt; +20% &amp; &gt; Rp 100rb
-                  </span>
-                </div>
-
-                <div className="p-2.5 rounded-lg bg-surface-container-low flex flex-col gap-0.5 border border-surface-container">
-                  <div className="flex items-center justify-between">
-                    <span className="font-title-sm text-title-sm font-bold text-on-surface">
-                      Fuel Genset
-                    </span>
-                    <span className="material-symbols-outlined text-[16px] text-on-surface-variant">
-                      local_gas_station
-                    </span>
-                  </div>
-                  <span className="font-body-sm text-body-sm text-on-surface-variant">
-                    Syarat Ganda:
-                  </span>
-                  <span className="font-label-badge text-label-badge text-on-surface font-semibold">
-                    &gt; +20% &amp; &gt; Rp 250rb
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Sinkronisasi Pagu & Aturan */}
-          <div className="bg-surface-container-lowest p-space-md rounded-xl shadow-sm flex flex-col gap-space-sm border border-surface-container-high/40">
-            <div className="flex items-center justify-between">
-              <div>
-                <span className="font-title-sm text-title-sm text-on-surface font-bold">
-                  Sinkronisasi Pagu &amp; Aturan
-                </span>
-                <p className="font-body-sm text-body-sm text-on-surface-variant">
-                  Tersimpan ke Tab &apos;MonthlyBudgets&apos; Sheets
-                </p>
-              </div>
-              <div className="w-8 h-8 rounded-lg bg-surface-container flex items-center justify-center text-on-surface">
-                <span className="material-symbols-outlined text-[18px]">table_chart</span>
-              </div>
-            </div>
-
-            <button
-              className={`w-full min-h-[48px] rounded-xl font-title-md text-title-md font-bold flex items-center justify-center gap-2 shadow-md active:scale-[0.99] transition-transform ${
-                saveSuccess
-                  ? 'bg-secondary-container text-on-secondary-container'
-                  : 'bg-primary text-on-primary'
-              }`}
-              disabled={isSaving}
-              onClick={handleSaveToSheets}
-              type="button"
-            >
-              {isSaving ? (
-                <>
-                  <span className="material-symbols-outlined text-[20px] animate-spin">
-                    refresh
-                  </span>
-                  Menyimpan ke Spreadsheet...
-                </>
-              ) : saveSuccess ? (
-                <>
-                  <span className="material-symbols-outlined text-[20px]">check_circle</span>
-                  Konfigurasi Tersimpan!
-                </>
-              ) : (
-                <>
-                  <span className="material-symbols-outlined text-[20px]">sync</span>
-                  Simpan Konfigurasi ke Spreadsheet
-                </>
-              )}
-            </button>
-          </div>
+          ) : (
+            categories.map((cat) => (
+              <CategoryBar key={cat.label} {...cat} />
+            ))
+          )}
         </div>
       </main>
-
-      {/* Modal Atur Pagu Baru */}
-      {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-          <div className="bg-surface-container-lowest w-full max-w-md rounded-2xl p-space-lg shadow-xl flex flex-col gap-space-md max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between">
-              <span className="font-headline-sm text-headline-sm font-bold text-on-surface">
-                Atur Pagu Baru
-              </span>
-              <button
-                className="w-8 h-8 rounded-full bg-surface-container flex items-center justify-center text-on-surface"
-                onClick={() => setIsModalOpen(false)}
-                type="button"
-              >
-                <span className="material-symbols-outlined text-[18px]">close</span>
-              </button>
-            </div>
-
-            <p className="font-body-sm text-body-sm text-on-surface-variant">
-              Tentukan pagu operasional bulanan mandiri untuk masing-masing 5 kategori.
-            </p>
-
-            <div className="flex flex-col gap-space-sm">
-              <div>
-                <label className="font-label-caps text-label-caps uppercase text-on-surface-variant">
-                  Listrik PLN (Rp)
-                </label>
-                <input
-                  className="w-full bg-surface-container-low px-3 py-2 rounded-lg font-metric-sm text-metric-sm text-on-surface focus:outline-none mt-1"
-                  type="number"
-                  value={budgets.listrik}
-                  onChange={(e) =>
-                    setBudgets({ ...budgets, listrik: parseInt(e.target.value, 10) || 0 })
-                  }
-                />
-              </div>
-
-              <div>
-                <label className="font-label-caps text-label-caps uppercase text-on-surface-variant">
-                  Air PDAM (Rp)
-                </label>
-                <input
-                  className="w-full bg-surface-container-low px-3 py-2 rounded-lg font-metric-sm text-metric-sm text-on-surface focus:outline-none mt-1"
-                  type="number"
-                  value={budgets.air}
-                  onChange={(e) =>
-                    setBudgets({ ...budgets, air: parseInt(e.target.value, 10) || 0 })
-                  }
-                />
-              </div>
-
-              <div>
-                <label className="font-label-caps text-label-caps uppercase text-on-surface-variant">
-                  Gas Sentral (Rp)
-                </label>
-                <input
-                  className="w-full bg-surface-container-low px-3 py-2 rounded-lg font-metric-sm text-metric-sm text-on-surface focus:outline-none mt-1"
-                  type="number"
-                  value={budgets.gas}
-                  onChange={(e) =>
-                    setBudgets({ ...budgets, gas: parseInt(e.target.value, 10) || 0 })
-                  }
-                />
-              </div>
-
-              <div>
-                <label className="font-label-caps text-label-caps uppercase text-on-surface-variant">
-                  Solar Genset (Rp)
-                </label>
-                <input
-                  className="w-full bg-surface-container-low px-3 py-2 rounded-lg font-metric-sm text-metric-sm text-on-surface focus:outline-none mt-1"
-                  type="number"
-                  value={budgets.solar}
-                  onChange={(e) =>
-                    setBudgets({ ...budgets, solar: parseInt(e.target.value, 10) || 0 })
-                  }
-                />
-              </div>
-
-              <div>
-                <label className="font-label-caps text-label-caps uppercase text-on-surface-variant">
-                  Pengeluaran Operasional (Rp)
-                </label>
-                <input
-                  className="w-full bg-surface-container-low px-3 py-2 rounded-lg font-metric-sm text-metric-sm text-on-surface focus:outline-none mt-1"
-                  type="number"
-                  value={budgets.opex}
-                  onChange={(e) =>
-                    setBudgets({ ...budgets, opex: parseInt(e.target.value, 10) || 0 })
-                  }
-                />
-              </div>
-            </div>
-
-            <div className="flex items-center justify-between pt-2 border-t border-surface-container">
-              <span className="font-title-sm text-title-sm font-bold text-on-surface">
-                Total Pagu Baru:
-              </span>
-              <span className="font-headline-sm text-headline-sm font-extrabold text-primary">
-                {formatRupiah(totalBudget)}
-              </span>
-            </div>
-
-            <button
-              className="w-full min-h-[44px] bg-primary text-on-primary rounded-xl font-title-sm text-title-sm font-bold"
-              onClick={() => {
-                setIsModalOpen(false);
-                handleSaveToSheets();
-              }}
-              type="button"
-            >
-              Simpan Pagu
-            </button>
-          </div>
-        </div>
-      )}
 
       <BottomNav />
     </div>

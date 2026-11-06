@@ -4,75 +4,72 @@ import React from 'react';
 import Link from 'next/link';
 
 interface HeaderProps {
-  title: string;
-  currentDate?: string;
-  onDateChange?: (newDate: string) => void;
+  title?: string;
+  subtitle?: string;
+  badge?: string;
+  badgeColor?: string;
+  rightElement?: React.ReactNode;
 }
 
 export const Header: React.FC<HeaderProps> = ({
   title,
-  currentDate = '26 Okt 2026',
+  subtitle,
+  badge,
+  badgeColor = 'bg-blue-100 text-blue-700',
+  rightElement,
 }) => {
+  const today = new Date().toLocaleDateString('en-US', {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  });
+
   return (
-    <header className="fixed top-0 w-full z-50 pt-safe bg-surface/90 backdrop-blur-xl shadow-[0_1px_8px_rgba(0,0,0,0.04)] border-b border-surface-container-high/40">
-      <div className="h-28 px-margin flex flex-col justify-center gap-space-xs max-w-md mx-auto">
-        {/* Top bar: Brand text identity & connection/supervisor badge */}
-        <div className="flex items-center justify-between">
-          <Link href="/" className="flex flex-col group">
-            <div className="flex items-baseline">
-              <span className="font-headline-sm text-headline-sm text-primary tracking-tight font-extrabold group-hover:opacity-90 transition-opacity">
-                MYlog
-              </span>
-              <span className="w-1.5 h-1.5 rounded-full bg-secondary-container ml-0.5 mb-0.5 inline-block"></span>
+    <header className="bg-white border-b border-gray-100 sticky top-0 z-50 shadow-sm">
+      <div className="max-w-md mx-auto px-4 py-3">
+        {/* Top bar */}
+        <div className="flex items-center justify-between mb-1">
+          <Link href="/" className="flex items-center gap-2">
+            {/* Logo mark */}
+            <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center shadow-sm">
+              <span className="text-white font-black text-sm">M</span>
             </div>
-            <span className="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider">
-              Agranusa Signature Villa
-            </span>
+            <div>
+              <div className="font-black text-gray-900 text-sm leading-tight">MYlog</div>
+              <div className="text-[10px] text-gray-500 leading-tight">Agranusa Signature Villa</div>
+            </div>
           </Link>
 
-          <div className="flex items-center gap-space-xs">
-            {/* Status pill: Online • Sheets */}
-            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-surface-container-low text-on-surface-variant font-label-badge text-label-badge border border-surface-container-high/50">
-              <span className="w-2 h-2 rounded-full bg-secondary-container animate-pulse"></span>
-              <span>Online • Sheets</span>
+          <div className="flex items-center gap-2">
+            {/* Live indicator */}
+            <div className="flex items-center gap-1.5 px-2.5 py-1 bg-green-50 rounded-full border border-green-100">
+              <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span>
+              <span className="text-[10px] font-semibold text-green-700">Live Sync</span>
             </div>
-
-            {/* Supervisor Badge (No Login Required) */}
-            <div
-              title="Supervisor Operasional"
-              className="px-2 py-1 rounded-full bg-primary text-on-primary font-label-badge text-[10px] font-bold flex items-center gap-1 shrink-0"
-            >
-              <span className="material-symbols-outlined text-[14px]">
-                verified
-              </span>
-              <span>Supervisor</span>
+            {/* Avatar */}
+            <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center">
+              <span className="text-white text-xs font-bold">SP</span>
             </div>
           </div>
         </div>
 
-        {/* Bottom bar: Page title & Date selector pill */}
-        <div className="flex items-center justify-between gap-space-xs">
-          <div className="flex items-center gap-1.5">
-            <span className="font-title-sm text-title-sm text-on-surface font-bold">
-              {title}
-            </span>
+        {/* Page title row */}
+        {(title || badge) && (
+          <div className="flex items-center justify-between mt-2">
+            <div>
+              {badge && (
+                <span className={`inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full mb-1 ${badgeColor}`}>
+                  <span className="w-1.5 h-1.5 rounded-full bg-current opacity-70"></span>
+                  {badge}
+                </span>
+              )}
+              {title && <h1 className="text-lg font-black text-gray-900 leading-tight">{title}</h1>}
+              {subtitle && <p className="text-xs text-gray-500 mt-0.5">{subtitle}</p>}
+            </div>
+            {rightElement}
           </div>
-
-          <button
-            className="min-h-[36px] px-2.5 py-1 rounded-full bg-surface-container-lowest shadow-[0_1px_4px_rgba(0,0,0,0.04)] border border-surface-container/60 flex items-center gap-1.5 text-on-surface active:scale-95 transition-transform"
-            type="button"
-          >
-            <span className="material-symbols-outlined text-[15px] text-secondary">
-              calendar_today
-            </span>
-            <span className="font-label-badge text-label-badge font-semibold">
-              {currentDate}
-            </span>
-            <span className="material-symbols-outlined text-[14px] text-on-surface-variant">
-              arrow_drop_down
-            </span>
-          </button>
-        </div>
+        )}
       </div>
     </header>
   );

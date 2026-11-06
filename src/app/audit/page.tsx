@@ -1,659 +1,270 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Header } from '@/components/Header';
 import { BottomNav } from '@/components/BottomNav';
 
+const filterTabs = ['All', 'Meter', 'Fuel', 'Expense', 'System'];
+
+const actionColor: Record<string, string> = {
+  CREATE: 'bg-green-50 text-green-700',
+  UPDATE: 'bg-blue-50 text-blue-700',
+  SOFT_DELETE: 'bg-red-50 text-red-600',
+  ARCHIVE: 'bg-orange-50 text-orange-600',
+};
+
+const dataTypeIcon: Record<string, React.ReactNode> = {
+  meter: (
+    <svg viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5 text-yellow-500">
+      <path d="M7 2v11h3v9l7-12h-4l4-8z"/>
+    </svg>
+  ),
+  fuel: (
+    <svg viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5 text-orange-500">
+      <path d="M19.77 7.23l.01-.01-3.72-3.72L15 4.56l2.11 2.11c-.94.36-1.61 1.26-1.61 2.33 0 1.38 1.12 2.5 2.5 2.5.36 0 .69-.08 1-.21v7.21c0 .55-.45 1-1 1s-1-.45-1-1V14c0-1.1-.9-2-2-2h-1V5c0-1.1-.9-2-2-2H6c-1.1 0-2 .9-2 2v16h10v-7.5h1.5v5c0 1.38 1.12 2.5 2.5 2.5s2.5-1.12 2.5-2.5V9c0-.69-.28-1.32-.73-1.77zM18 10c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1zM8 18v-4.5H6.5V18H5V5h8v13H8z"/>
+    </svg>
+  ),
+  opex: (
+    <svg viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5 text-purple-500">
+      <path d="M11.8 10.9c-2.27-.59-3-1.2-3-2.15 0-1.09 1.01-1.85 2.7-1.85 1.78 0 2.44.85 2.5 2.1h2.21c-.07-1.72-1.12-3.3-3.21-3.81V3h-3v2.16c-1.94.42-3.5 1.68-3.5 3.61 0 2.31 1.91 3.46 4.7 4.13 2.5.6 3 1.48 3 2.41 0 .69-.49 1.79-2.7 1.79-2.06 0-2.87-.92-2.98-2.1h-2.2c.12 2.19 1.76 3.42 3.68 3.83V21h3v-2.15c1.95-.37 3.5-1.5 3.5-3.55 0-2.84-2.43-3.81-4.7-4.4z"/>
+    </svg>
+  ),
+};
+
+function formatTime(ts: string) {
+  if (!ts) return '—';
+  try {
+    return new Date(ts).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+  } catch {
+    return ts.slice(11, 16);
+  }
+}
+
+function formatDateTime(ts: string) {
+  if (!ts) return '—';
+  try {
+    return new Date(ts).toLocaleDateString('en-US', {
+      month: 'short', day: 'numeric', year: 'numeric',
+      hour: '2-digit', minute: '2-digit',
+    });
+  } catch {
+    return ts;
+  }
+}
+
 export default function AuditPage() {
-  const [selectedRange, setSelectedRange] = useState<'month' | '7d' | 'custom'>('month');
-  const [selectedStatus, setSelectedStatus] = useState<'all' | 'complete' | 'partial'>('all');
-  const [expandedAuditId, setExpandedAuditId] = useState<string | null>('25');
+  const [logs, setLogs] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [activeFilter, setActiveFilter] = useState('All');
+  const [search, setSearch] = useState('');
 
-  // Correction Modal State
-  const [correctionModalDate, setCorrectionModalDate] = useState<string | null>(null);
-  const [correctionReason, setCorrectionReason] = useState('');
-  const [isSavingCorrection, setIsSavingCorrection] = useState(false);
+  useEffect(() => {
+    fetch('/api/audit')
+      .then((r) => r.json())
+      .then((j) => { setLogs(j.logs || []); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, []);
 
-  const handleArchive = async (date: string) => {
-    if (confirm(`Apakah Anda yakin ingin mengarsipkan (soft delete) data tanggal ${date}? Data tidak dihapus permanen dan jejak audit akan dicatat.`)) {
-      await fetch('/api/archive', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          dataType: 'readings',
-          recordId: `read-${date}`,
-          reason: 'Pengarsipan catatan lampau oleh Supervisor',
-        }),
-      });
-      alert(`Data tanggal ${date} berhasil diarsipkan (soft delete).`);
-    }
-  };
+  const filtered = logs.filter((log) => {
+    const matchSearch =
+      !search ||
+      log.recordId?.toLowerCase().includes(search.toLowerCase()) ||
+      log.targetDate?.includes(search) ||
+      log.action?.toLowerCase().includes(search.toLowerCase());
 
-  const handleSaveCorrection = async () => {
-    if (!correctionReason.trim()) {
-      alert('Alasan koreksi wajib diisi untuk catatan riwayat.');
-      return;
-    }
-    setIsSavingCorrection(true);
-    try {
-      await fetch('/api/readings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          date: correctionModalDate,
-          reason: correctionReason,
-          userEmail: 'supervisor@agranusavilla.com',
-        }),
-      });
-      setIsSavingCorrection(false);
-      setCorrectionModalDate(null);
-      setCorrectionReason('');
-      alert('Koreksi data lampau berhasil dicatat dalam audit trail.');
-    } catch {
-      setIsSavingCorrection(false);
-      setCorrectionModalDate(null);
-      setCorrectionReason('');
-    }
-  };
+    const matchFilter =
+      activeFilter === 'All' ||
+      (activeFilter === 'Meter' && log.dataType === 'meter') ||
+      (activeFilter === 'Fuel' && log.dataType === 'fuel') ||
+      (activeFilter === 'Expense' && log.dataType === 'opex') ||
+      (activeFilter === 'System' && !['meter', 'fuel', 'opex'].includes(log.dataType));
+
+    return matchSearch && matchFilter;
+  });
+
+  const today = new Date().toISOString().split('T')[0];
+  const todayLogs = filtered.filter((l) => l.targetDate === today || l.timestamp?.startsWith(today));
 
   return (
-    <div className="bg-surface min-h-screen pb-28">
-      <Header title="Histori Audit" currentDate="26 Okt 2026" />
+    <div className="bg-gray-50 min-h-screen pb-24">
+      <Header
+        badge="Tamper-Proof Ledger"
+        badgeColor="bg-indigo-100 text-indigo-700"
+        title="System & Operational Audit"
+        subtitle="Immutable record of all data entries, edits and changes."
+        rightElement={
+          <div className="flex items-center gap-1.5 bg-green-50 border border-green-100 rounded-full px-2.5 py-1.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span>
+            <span className="text-[10px] font-bold text-green-700">Hash Sync Active</span>
+          </div>
+        }
+      />
 
-      <main className="flex flex-col relative w-full pt-28 px-margin max-w-md mx-auto">
-        <div className="flex flex-col w-full gap-space-md pb-12 pt-2">
-          {/* Villa Identity Banner & Live Sync Status */}
-          <div className="w-full bg-surface-container-lowest rounded-xl p-space-md shadow-sm flex flex-col gap-space-sm border border-surface-container-high/40">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-lg bg-surface-container-high flex items-center justify-center text-primary-container">
-                  <span className="material-symbols-outlined text-[18px]">verified_user</span>
-                </div>
-                <div className="flex flex-col">
-                  <span className="font-title-sm text-title-sm text-on-surface font-bold">
-                    Audit Trail &amp; Integritas Data
-                  </span>
-                  <span className="font-label-caps text-label-caps text-on-surface-variant uppercase">
-                    Pencatatan Mandiri Supervisor • Read-Write Lock
-                  </span>
-                </div>
-              </div>
-              <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-surface-container-high text-on-surface font-label-badge text-label-badge border border-surface-container">
-                Sheets ID: AG-2026
-              </span>
-            </div>
+      <main className="max-w-md mx-auto px-4 pt-5">
+        {/* Stats Row */}
+        <div className="grid grid-cols-3 gap-3 mb-4">
+          <div className="bg-white rounded-2xl p-3 shadow-sm border border-gray-50 text-center">
+            <div className="text-xl font-black text-gray-900">{loading ? '—' : logs.length}</div>
+            <div className="text-[10px] text-gray-400 font-semibold">Total Events</div>
+            <div className="text-[10px] text-blue-500 font-bold mt-0.5">+{todayLogs.length} today</div>
+          </div>
+          <div className="bg-white rounded-2xl p-3 shadow-sm border border-gray-50 text-center">
+            <div className="text-xl font-black text-green-500">0</div>
+            <div className="text-[10px] text-gray-400 font-semibold">Security Alerts</div>
+            <div className="text-[10px] text-green-500 font-bold mt-0.5">Clean</div>
+          </div>
+          <div className="bg-white rounded-2xl p-3 shadow-sm border border-gray-50 text-center">
+            <div className="text-xl font-black text-blue-600">100%</div>
+            <div className="text-[10px] text-gray-400 font-semibold">Compliance</div>
+            <div className="text-[10px] text-blue-500 font-bold mt-0.5">Agranusa</div>
+          </div>
+        </div>
+
+        {/* Search */}
+        <div className="relative mb-4">
+          <svg viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4 text-gray-300 absolute left-4 top-1/2 -translate-y-1/2">
+            <path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/>
+          </svg>
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search by date, record ID or action..."
+            className="w-full h-11 bg-white border border-gray-200 rounded-2xl pl-10 pr-4 text-sm text-gray-900 placeholder-gray-300 focus:outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100 shadow-sm transition-all"
+          />
+        </div>
+
+        {/* Filter Tabs */}
+        <div className="flex gap-2 mb-4 overflow-x-auto pb-1 no-scrollbar">
+          {filterTabs.map((tab) => (
+            <button
+              key={tab}
+              onClick={() => setActiveFilter(tab)}
+              className={`shrink-0 px-4 py-1.5 rounded-full text-xs font-bold transition-all ${
+                activeFilter === tab
+                  ? 'bg-blue-600 text-white shadow-sm shadow-blue-200'
+                  : 'bg-white text-gray-500 border border-gray-200'
+              }`}
+            >
+              {tab}
+              {tab === 'All' && !loading && (
+                <span className="ml-1 text-[10px] opacity-70">({logs.length})</span>
+              )}
+            </button>
+          ))}
+        </div>
+
+        {/* Audit Feed */}
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-50 overflow-hidden mb-4">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-gray-50">
+            <h3 className="text-sm font-black text-gray-900">Audit Trail Feed</h3>
+            <span className="text-[10px] text-gray-400 font-semibold">Today · UTC+8 Makassar</span>
           </div>
 
-          {/* Filter Kontrol: Rentang Tanggal & Kelengkapan */}
-          <div className="w-full bg-surface-container-lowest rounded-xl p-space-md shadow-sm flex flex-col gap-space-sm border border-surface-container-high/40">
-            <div className="flex items-center justify-between">
-              <span className="font-title-sm text-title-sm text-on-surface font-bold flex items-center gap-1.5">
-                <span className="material-symbols-outlined text-[16px] text-secondary">tune</span>
-                Filter Riwayat
-              </span>
-              <button
-                className="font-label-badge text-label-badge text-on-surface-variant active:text-primary transition-colors"
-                onClick={() => {
-                  setSelectedRange('month');
-                  setSelectedStatus('all');
-                }}
-                type="button"
-              >
-                Reset Filter
-              </button>
-            </div>
-
-            {/* Segment Rentang Tanggal */}
-            <div className="flex items-center p-1 rounded-lg bg-surface-container-low gap-1" role="tablist">
-              <button
-                className={`flex-1 py-1.5 px-2 rounded-lg font-title-sm text-title-sm text-center transition-all ${
-                  selectedRange === 'month'
-                    ? 'bg-surface-container-lowest text-on-surface shadow-sm font-bold'
-                    : 'text-on-surface-variant'
-                }`}
-                onClick={() => setSelectedRange('month')}
-                type="button"
-              >
-                Bulan Ini
-              </button>
-              <button
-                className={`flex-1 py-1.5 px-2 rounded-lg font-title-sm text-title-sm text-center transition-all ${
-                  selectedRange === '7d'
-                    ? 'bg-surface-container-lowest text-on-surface shadow-sm font-bold'
-                    : 'text-on-surface-variant'
-                }`}
-                onClick={() => setSelectedRange('7d')}
-                type="button"
-              >
-                7 Hari Terakhir
-              </button>
-              <button
-                className={`flex-1 py-1.5 px-2 rounded-lg font-title-sm text-title-sm text-center transition-all ${
-                  selectedRange === 'custom'
-                    ? 'bg-surface-container-lowest text-on-surface shadow-sm font-bold'
-                    : 'text-on-surface-variant'
-                }`}
-                onClick={() => setSelectedRange('custom')}
-                type="button"
-              >
-                Kustom
-              </button>
-            </div>
-
-            {/* Segment Status Integritas */}
-            <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">
-              <button
-                className={`shrink-0 px-3 py-1.5 rounded-full font-label-badge text-label-badge shadow-sm transition-transform active:scale-95 ${
-                  selectedStatus === 'all'
-                    ? 'bg-primary-container text-on-primary font-bold'
-                    : 'bg-surface-container text-on-surface'
-                }`}
-                onClick={() => setSelectedStatus('all')}
-                type="button"
-              >
-                Semua (31 Hari)
-              </button>
-              <button
-                className={`shrink-0 px-3 py-1.5 rounded-full font-label-badge text-label-badge transition-transform active:scale-95 ${
-                  selectedStatus === 'complete'
-                    ? 'bg-primary-container text-on-primary font-bold'
-                    : 'bg-surface-container text-on-surface'
-                }`}
-                onClick={() => setSelectedStatus('complete')}
-                type="button"
-              >
-                100% Lengkap (26)
-              </button>
-              <button
-                className={`shrink-0 px-3 py-1.5 rounded-full font-label-badge text-label-badge transition-transform active:scale-95 ${
-                  selectedStatus === 'partial'
-                    ? 'bg-primary-container text-on-primary font-bold'
-                    : 'bg-surface-container text-on-surface'
-                }`}
-                onClick={() => setSelectedStatus('partial')}
-                type="button"
-              >
-                Parsial / Perlu Aksi (5)
-              </button>
-            </div>
-          </div>
-
-          {/* Kartu Ringkasan Status Integritas Data */}
-          <div className="w-full bg-primary-container text-on-primary rounded-xl p-space-md shadow-md flex flex-col gap-space-sm relative overflow-hidden">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-secondary-container"></span>
-                <span className="font-title-sm text-title-sm text-surface font-bold">
-                  Status Siklus Okto 2026
-                </span>
-              </div>
-              <span className="font-label-badge text-label-badge px-2 py-0.5 rounded-full bg-surface-container-high/20 text-surface font-semibold">
-                98.4% Sehat
-              </span>
-            </div>
-
-            {/* 4 Metrik Grid */}
-            <div className="grid grid-cols-2 gap-2 pt-1">
-              <div className="bg-surface-container-highest/10 rounded-lg p-2.5 flex flex-col border border-white/10">
-                <span className="font-label-caps text-label-caps text-surface-variant uppercase tracking-wider">
-                  Hari Kalender
-                </span>
-                <div className="flex items-baseline gap-1 mt-0.5">
-                  <span className="font-metric-display text-metric-display text-surface">31</span>
-                  <span className="font-body-sm text-body-sm text-surface-variant">Hari</span>
-                </div>
-                <span className="font-label-badge text-label-badge text-surface-variant mt-1">
-                  Siklus berjalan penuh
-                </span>
-              </div>
-
-              <div className="bg-surface-container-highest/10 rounded-lg p-2.5 flex flex-col border border-white/10">
-                <span className="font-label-caps text-label-caps text-surface-variant uppercase tracking-wider">
-                  Tercatat Lengkap
-                </span>
-                <div className="flex items-baseline gap-1 mt-0.5">
-                  <span className="font-metric-display text-metric-display text-secondary-container">
-                    26
-                  </span>
-                  <span className="font-body-sm text-body-sm text-surface-variant">/ 31</span>
-                </div>
-                <span className="font-label-badge text-label-badge text-surface-variant mt-1">
-                  5 Telemetri valid
-                </span>
-              </div>
-
-              <div className="bg-surface-container-highest/10 rounded-lg p-2.5 flex flex-col border border-white/10">
-                <span className="font-label-caps text-label-caps text-surface-variant uppercase tracking-wider">
-                  Data Hilang
-                </span>
-                <div className="flex items-baseline gap-1 mt-0.5">
-                  <span className="font-metric-display text-metric-display text-surface">0</span>
-                  <span className="font-body-sm text-body-sm text-surface-variant">Hari</span>
-                </div>
-                <span className="font-label-badge text-label-badge text-surface-variant mt-1">
-                  Zero omission alert
-                </span>
-              </div>
-
-              <div className="bg-surface-container-highest/10 rounded-lg p-2.5 flex flex-col border border-white/10">
-                <span className="font-label-caps text-label-caps text-surface-variant uppercase tracking-wider">
-                  Telah Dikoreksi
-                </span>
-                <div className="flex items-baseline gap-1 mt-0.5">
-                  <span className="font-metric-display text-metric-display text-surface">3</span>
-                  <span className="font-body-sm text-body-sm text-surface-variant">Catatan</span>
-                </div>
-                <span className="font-label-badge text-label-badge text-surface-variant mt-1">
-                  Jejak audit tersimpan
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* Kronologis Entri Harian */}
-          <div className="flex items-center justify-between px-1">
-            <span className="font-title-md text-title-md text-on-surface font-bold flex items-center gap-1.5">
-              <span className="material-symbols-outlined text-[18px]">history_toggle_drop_down</span>
-              Kronologis Entri Harian
-            </span>
-            <span className="font-label-badge text-label-badge text-on-surface-variant">
-              Terbaru di atas
-            </span>
-          </div>
-
-          {/* 1. Date 26 Okt 2026 */}
-          <div className="bg-surface-container-lowest rounded-xl p-space-md shadow-sm flex flex-col gap-space-sm border border-surface-container-high/40">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <span className="font-title-md text-title-md font-bold text-on-surface">
-                  26 Okt 2026
-                </span>
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-secondary-container/20 text-on-secondary-fixed-variant font-label-badge text-label-badge font-semibold">
-                  <span className="w-1.5 h-1.5 rounded-full bg-secondary-container"></span>
-                  Tersinkron
-                </span>
-              </div>
-              <span className="px-2 py-0.5 rounded-full bg-surface-container font-label-badge text-label-badge text-on-surface font-bold">
-                5/5 Komponen
-              </span>
-            </div>
-
-            <p className="font-body-sm text-body-sm text-on-surface-variant">
-              Pencatatan Mandiri Supervisor • 18:42 WITA
-            </p>
-
-            <div className="flex items-center justify-between p-2.5 rounded-lg bg-surface-container-low border border-surface-container">
-              <div className="flex flex-col">
-                <span className="font-label-caps text-label-caps text-on-surface-variant uppercase">
-                  Total Beban Hari Ini
-                </span>
-                <span className="font-metric-sm text-metric-sm text-on-surface font-extrabold">
-                  Rp 4.335.200
-                </span>
-              </div>
-              <span className="inline-flex items-center gap-1 font-label-badge text-label-badge text-secondary font-semibold">
-                <span className="material-symbols-outlined text-[15px]">cloud_done</span>
-                Google Sheet Valid
-              </span>
-            </div>
-
-            {/* 5 mini pills */}
-            <div className="grid grid-cols-5 gap-1 pt-1">
-              <div className="flex flex-col items-center py-1 rounded bg-surface-container-low">
-                <span className="font-label-caps text-[9px] text-on-surface-variant">LISTRIK</span>
-                <span className="font-label-badge text-label-badge font-bold text-on-surface">142 kWh</span>
-              </div>
-              <div className="flex flex-col items-center py-1 rounded bg-surface-container-low">
-                <span className="font-label-caps text-[9px] text-on-surface-variant">AIR</span>
-                <span className="font-label-badge text-label-badge font-bold text-on-surface">3.12 m³</span>
-              </div>
-              <div className="flex flex-col items-center py-1 rounded bg-surface-container-low">
-                <span className="font-label-caps text-[9px] text-on-surface-variant">GAS</span>
-                <span className="font-label-badge text-label-badge font-bold text-on-surface">1.5 Tbg</span>
-              </div>
-              <div className="flex flex-col items-center py-1 rounded bg-surface-container-low">
-                <span className="font-label-caps text-[9px] text-on-surface-variant">GENSET</span>
-                <span className="font-label-badge text-label-badge font-bold text-on-surface">0 Ltr</span>
-              </div>
-              <div className="flex flex-col items-center py-1 rounded bg-surface-container-low">
-                <span className="font-label-caps text-[9px] text-on-surface-variant">OPEX</span>
-                <span className="font-label-badge text-label-badge font-bold text-on-surface">Lengkap</span>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-2 pt-1">
-              <button
-                className="py-2 px-3 rounded-lg bg-surface-container-low text-on-surface font-title-sm text-title-sm flex items-center justify-center gap-1.5 active:scale-95 transition-transform border border-surface-container"
-                onClick={() => setCorrectionModalDate('2026-10-26')}
-                type="button"
-              >
-                <span className="material-symbols-outlined text-[16px]">edit_calendar</span>
-                Koreksi Data Lampau
-              </button>
-              <button
-                className="py-2 px-3 rounded-lg bg-surface-container-low text-on-surface-variant font-title-sm text-title-sm flex items-center justify-center gap-1.5 active:scale-95 transition-transform border border-surface-container"
-                onClick={() => handleArchive('2026-10-26')}
-                type="button"
-              >
-                <span className="material-symbols-outlined text-[16px]">archive</span>
-                Arsipkan
-              </button>
-            </div>
-          </div>
-
-          {/* 2. Date 25 Okt 2026 (Revised v2) */}
-          <div className="bg-surface-container-lowest rounded-xl p-space-md shadow-sm flex flex-col gap-space-sm border border-surface-container-high/40">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <span className="font-title-md text-title-md font-bold text-on-surface">
-                  25 Okt 2026
-                </span>
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-surface-container text-on-surface font-label-badge text-label-badge font-semibold">
-                  <span className="material-symbols-outlined text-[13px] text-secondary">history</span>
-                  Telah Dikoreksi v2
-                </span>
-              </div>
-              <span className="px-2 py-0.5 rounded-full bg-surface-container font-label-badge text-label-badge text-on-surface font-bold">
-                5/5 Lengkap
-              </span>
-            </div>
-
-            <p className="font-body-sm text-body-sm text-on-surface-variant">
-              Revisi Disimpan oleh Supervisor (25/10 21:04)
-            </p>
-
-            <div className="flex items-center justify-between p-2.5 rounded-lg bg-surface-container-low border border-surface-container">
-              <div className="flex flex-col">
-                <span className="font-label-caps text-label-caps text-on-surface-variant uppercase">
-                  Total Beban Pasca-Koreksi
-                </span>
-                <div className="flex items-baseline gap-2">
-                  <span className="font-metric-sm text-metric-sm text-on-surface font-extrabold">
-                    Rp 4.521.200
-                  </span>
-                  <span className="font-body-sm text-body-sm text-on-surface-variant line-through">
-                    Rp 4.496.200
-                  </span>
-                </div>
-              </div>
-              <button
-                className="font-label-badge text-label-badge text-secondary font-semibold flex items-center gap-0.5"
-                onClick={() => setExpandedAuditId(expandedAuditId === '25' ? null : '25')}
-                type="button"
-              >
-                Detail Audit
-                <span className="material-symbols-outlined text-[14px]">
-                  {expandedAuditId === '25' ? 'expand_less' : 'expand_more'}
-                </span>
-              </button>
-            </div>
-
-            {/* Audit details breakdown */}
-            {expandedAuditId === '25' && (
-              <div className="p-2.5 rounded-lg bg-surface-container-high/30 flex flex-col gap-1 text-body-sm text-on-surface border border-surface-container">
-                <div className="flex items-center justify-between font-semibold">
-                  <span>Audit ID: AUD-2026-1025-01</span>
-                  <span>21:04:12 WITA</span>
-                </div>
-                <p className="text-on-surface-variant">
-                  <strong>Sebelumnya:</strong> Listrik 14.700 kWh (Rp 2.115.000)
-                </p>
-                <p className="text-on-surface">
-                  <strong>Revisi:</strong> Listrik 14.708 kWh (Rp 2.140.000)
-                </p>
-                <p className="text-secondary font-medium">
-                  <strong>Alasan:</strong> Koreksi salah catat digit akhir meteran gardu PLN.
-                </p>
-              </div>
-            )}
-
-            <div className="grid grid-cols-2 gap-2 pt-1">
-              <button
-                className="py-2 px-3 rounded-lg bg-surface-container-low text-on-surface font-title-sm text-title-sm flex items-center justify-center gap-1.5 active:scale-95 transition-transform border border-surface-container"
-                onClick={() => setCorrectionModalDate('2026-10-25')}
-                type="button"
-              >
-                <span className="material-symbols-outlined text-[16px]">history</span>
-                Koreksi Ulang (v3)
-              </button>
-              <button
-                className="py-2 px-3 rounded-lg bg-surface-container-low text-on-surface-variant font-title-sm text-title-sm flex items-center justify-center gap-1.5 active:scale-95 transition-transform border border-surface-container"
-                onClick={() => handleArchive('2026-10-25')}
-                type="button"
-              >
-                <span className="material-symbols-outlined text-[16px]">archive</span>
-                Arsipkan
-              </button>
-            </div>
-          </div>
-
-          {/* 3. Date 24 Okt 2026 (Final Locked) */}
-          <div className="bg-surface-container-lowest rounded-xl p-space-md shadow-sm flex flex-col gap-space-sm border border-surface-container-high/40">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <span className="font-title-md text-title-md font-bold text-on-surface">
-                  24 Okt 2026
-                </span>
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-surface-container text-on-surface font-label-badge text-label-badge font-semibold">
-                  <span className="material-symbols-outlined text-[13px]">lock</span>
-                  Final Locked
-                </span>
-              </div>
-              <span className="px-2 py-0.5 rounded-full bg-surface-container font-label-badge text-label-badge text-on-surface font-bold">
-                5/5 Komponen
-              </span>
-            </div>
-
-            <p className="font-body-sm text-body-sm text-on-surface-variant">
-              Pencatatan Mandiri Supervisor • 18:30 WITA
-            </p>
-
-            <div className="flex items-center justify-between">
-              <span className="font-title-sm text-title-sm text-on-surface font-semibold">
-                Biaya Komulatif Harian
-              </span>
-              <span className="font-headline-sm text-headline-sm text-on-surface font-extrabold">
-                Rp 4.180.500
-              </span>
-            </div>
-
-            {/* Detailed list items */}
-            <div className="flex flex-col gap-1.5 pt-1">
-              <div className="flex items-center justify-between p-2 rounded-lg bg-surface-container-low border border-surface-container">
-                <div className="flex items-center gap-2">
-                  <span className="material-symbols-outlined text-[17px] text-secondary">bolt</span>
-                  <div className="flex flex-col">
-                    <span className="font-title-sm text-title-sm font-semibold">Listrik Utama</span>
-                    <span className="font-body-sm text-body-sm text-on-surface-variant">
-                      Akhir: 45.890 kWh
-                    </span>
+          {loading ? (
+            <div className="p-4 space-y-4">
+              {[1,2,3,4].map(i => (
+                <div key={i} className="flex gap-3 animate-pulse">
+                  <div className="w-9 h-9 bg-gray-100 rounded-xl" />
+                  <div className="flex-1 space-y-2">
+                    <div className="h-3 bg-gray-100 rounded w-3/4" />
+                    <div className="h-2 bg-gray-100 rounded w-1/2" />
                   </div>
                 </div>
-                <div className="flex flex-col items-end">
-                  <span className="font-title-sm text-title-sm font-bold">148 kWh</span>
-                  <span className="font-body-sm text-body-sm text-on-surface-variant">
-                    Rp 2.140.000
-                  </span>
-                </div>
-              </div>
-
-              <div className="flex items-center justify-between p-2 rounded-lg bg-surface-container-low border border-surface-container">
-                <div className="flex items-center gap-2">
-                  <span className="material-symbols-outlined text-[17px] text-tertiary-container">
-                    water_drop
-                  </span>
-                  <div className="flex flex-col">
-                    <span className="font-title-sm text-title-sm font-semibold">
-                      Air PDAM &amp; Sumur
-                    </span>
-                    <span className="font-body-sm text-body-sm text-on-surface-variant">
-                      Akhir: 3.110 m³
-                    </span>
-                  </div>
-                </div>
-                <div className="flex flex-col items-end">
-                  <span className="font-title-sm text-title-sm font-bold">3.8 m³</span>
-                  <span className="font-body-sm text-body-sm text-on-surface-variant">
-                    Rp 475.000
-                  </span>
-                </div>
-              </div>
-
-              <div className="flex items-center justify-between p-2 rounded-lg bg-surface-container-low border border-surface-container">
-                <div className="flex items-center gap-2">
-                  <span className="material-symbols-outlined text-[17px] text-secondary">
-                    mode_heat
-                  </span>
-                  <div className="flex flex-col">
-                    <span className="font-title-sm text-title-sm font-semibold">
-                      Gas Dapur &amp; Water Heater
-                    </span>
-                    <span className="font-body-sm text-body-sm text-on-surface-variant">
-                      Bobot: 50 kg silinder
-                    </span>
-                  </div>
-                </div>
-                <div className="flex flex-col items-end">
-                  <span className="font-title-sm text-title-sm font-bold">1.0 Tabung</span>
-                  <span className="font-body-sm text-body-sm text-on-surface-variant">
-                    Rp 650.000
-                  </span>
-                </div>
-              </div>
-
-              <div className="flex items-center justify-between p-2 rounded-lg bg-surface-container-low border border-surface-container">
-                <div className="flex items-center gap-2">
-                  <span className="material-symbols-outlined text-[17px] text-on-surface-variant">
-                    local_gas_station
-                  </span>
-                  <div className="flex flex-col">
-                    <span className="font-title-sm text-title-sm font-semibold">
-                      Solar Genset Standby
-                    </span>
-                    <span className="font-body-sm text-body-sm text-on-surface-variant">
-                      Tangki: 320 Liter
-                    </span>
-                  </div>
-                </div>
-                <div className="flex flex-col items-end">
-                  <span className="font-title-sm text-title-sm font-bold">0 Liter (Idle)</span>
-                  <span className="font-body-sm text-body-sm text-on-surface-variant">Rp 0</span>
-                </div>
-              </div>
-
-              <div className="flex items-center justify-between p-2 rounded-lg bg-surface-container-low border border-surface-container">
-                <div className="flex items-center gap-2">
-                  <span className="material-symbols-outlined text-[17px] text-on-surface">
-                    build
-                  </span>
-                  <div className="flex flex-col">
-                    <span className="font-title-sm text-title-sm font-semibold">
-                      Opex Sanitasi &amp; Kolam
-                    </span>
-                    <span className="font-body-sm text-body-sm text-on-surface-variant">
-                      Klorinasi &amp; Garam Filter
-                    </span>
-                  </div>
-                </div>
-                <div className="flex flex-col items-end">
-                  <span className="font-title-sm text-title-sm font-bold">2 Item Terpakai</span>
-                  <span className="font-body-sm text-body-sm text-on-surface-variant">
-                    Rp 915.500
-                  </span>
-                </div>
-              </div>
+              ))}
             </div>
-
-            <div className="grid grid-cols-2 gap-2 pt-1">
-              <button
-                className="py-2 px-3 rounded-lg bg-surface-container-low text-on-surface font-title-sm text-title-sm flex items-center justify-center gap-1.5 active:scale-95 transition-transform border border-surface-container"
-                onClick={() => setCorrectionModalDate('2026-10-24')}
-                type="button"
-              >
-                <span className="material-symbols-outlined text-[16px]">edit_calendar</span>
-                Koreksi Data Lampau
-              </button>
-              <button
-                className="py-2 px-3 rounded-lg bg-surface-container-low text-on-surface-variant font-title-sm text-title-sm flex items-center justify-center gap-1.5 active:scale-95 transition-transform border border-surface-container"
-                onClick={() => handleArchive('2026-10-24')}
-                type="button"
-              >
-                <span className="material-symbols-outlined text-[16px]">archive</span>
-                Arsipkan
-              </button>
+          ) : filtered.length === 0 ? (
+            <div className="py-12 text-center px-4">
+              <div className="w-14 h-14 bg-gray-50 rounded-2xl flex items-center justify-center mx-auto mb-3">
+                <svg viewBox="0 0 24 24" fill="currentColor" className="w-7 h-7 text-gray-200">
+                  <path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z"/>
+                </svg>
+              </div>
+              <p className="text-sm font-bold text-gray-400">No audit records found</p>
+              <p className="text-xs text-gray-300 mt-1">Records will appear here once you log data.</p>
             </div>
-          </div>
+          ) : (
+            filtered.map((log, i) => (
+              <div key={log.id || i} className="flex items-start gap-3 px-4 py-3 border-b border-gray-50 last:border-0">
+                {/* Icon */}
+                <div className="w-9 h-9 rounded-xl bg-gray-50 flex items-center justify-center shrink-0 mt-0.5">
+                  {dataTypeIcon[log.dataType] || (
+                    <svg viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5 text-gray-300">
+                      <path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z"/>
+                    </svg>
+                  )}
+                </div>
 
-          {/* Kebijakan Soft Delete & Immutable Audit Disclaimer */}
-          <div className="bg-surface-container-low rounded-xl p-space-md flex items-start gap-2.5 text-on-surface-variant border border-surface-container">
-            <span className="material-symbols-outlined text-[20px] text-secondary shrink-0 mt-0.5">
-              security
-            </span>
-            <div className="flex flex-col gap-0.5">
-              <span className="font-title-sm text-title-sm font-semibold text-on-surface">
-                Kebijakan Soft Delete &amp; Immutable Audit
-              </span>
-              <p className="font-body-sm text-body-sm leading-snug">
-                Seluruh arsip data lampau berstatus <strong>Soft Delete</strong>. Data yang diarsipkan dinonaktifkan dari agregasi biaya bulanan, tidak pernah dihapus permanen dari Google Sheets Master, dan dapat dipulihkan sewaktu-waktu oleh Supervisor.
-              </p>
-            </div>
+                {/* Content */}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-bold text-gray-900 leading-tight">
+                        {log.action} — {log.recordId || log.dataType}
+                      </div>
+                      {log.targetDate && (
+                        <div className="text-xs text-gray-400 mt-0.5">
+                          Date: {log.targetDate}
+                        </div>
+                      )}
+                      {log.reason && (
+                        <div className="text-[10px] text-gray-400 mt-1 italic">"{log.reason}"</div>
+                      )}
+                    </div>
+                    <div className="shrink-0 text-right">
+                      <div className="text-[10px] text-gray-400">{formatTime(log.timestamp)}</div>
+                      <span className={`inline-block mt-1 text-[10px] font-bold px-2 py-0.5 rounded-full ${actionColor[log.action] || 'bg-gray-100 text-gray-500'}`}>
+                        {log.action}
+                      </span>
+                    </div>
+                  </div>
+                  {/* Prev / New Values */}
+                  {(log.previousValue || log.newValue) && (
+                    <div className="flex gap-2 mt-1.5">
+                      {log.previousValue && log.previousValue !== 'Data Baru' && (
+                        <span className="text-[10px] bg-red-50 text-red-400 px-1.5 py-0.5 rounded-lg font-mono">
+                          Before: {String(log.previousValue).slice(0, 30)}
+                        </span>
+                      )}
+                      {log.newValue && (
+                        <span className="text-[10px] bg-green-50 text-green-600 px-1.5 py-0.5 rounded-lg font-mono">
+                          After: {String(log.newValue).slice(0, 30)}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+
+        {/* Export Row */}
+        <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-50 mb-4">
+          <div className="text-xs font-black text-gray-900 mb-1">Export Compliance Trail</div>
+          <div className="text-[10px] text-gray-400 mb-3">PDF/CSV Ledger</div>
+          <div className="flex gap-2">
+            <button
+              onClick={() => window.print()}
+              className="flex-1 h-10 bg-gray-50 border border-gray-200 text-gray-700 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 active:scale-95 transition-transform"
+            >
+              <svg viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4">
+                <path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/>
+              </svg>
+              CSV Export
+            </button>
+            <button
+              onClick={() => window.print()}
+              className="flex-1 h-10 bg-blue-600 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-md shadow-blue-200 active:scale-95 transition-transform"
+            >
+              <svg viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4">
+                <path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/>
+              </svg>
+              Certified PDF
+            </button>
           </div>
         </div>
       </main>
-
-      {/* Modal Koreksi Data Lampau */}
-      {correctionModalDate && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-          <div className="bg-surface-container-lowest w-full max-w-md rounded-2xl p-space-lg shadow-xl flex flex-col gap-space-md border border-surface-container">
-            <div className="flex items-center justify-between">
-              <span className="font-headline-sm text-headline-sm font-bold text-on-surface">
-                Koreksi Data {correctionModalDate}
-              </span>
-              <button
-                className="w-8 h-8 rounded-full bg-surface-container flex items-center justify-center text-on-surface"
-                onClick={() => setCorrectionModalDate(null)}
-                type="button"
-              >
-                <span className="material-symbols-outlined text-[18px]">close</span>
-              </button>
-            </div>
-
-            <p className="font-body-sm text-body-sm text-on-surface-variant">
-              Setiap koreksi wajib menyertakan alasan yang jelas untuk kebutuhan jejak riwayat internal vila.
-            </p>
-
-            <div className="flex flex-col gap-1">
-              <label className="font-label-caps text-label-caps uppercase text-on-surface-variant">
-                Alasan Koreksi
-              </label>
-              <textarea
-                className="w-full bg-surface-container-low px-3 py-2 rounded-lg font-body-md text-body-md text-on-surface focus:outline-none min-h-[90px] border border-surface-container"
-                placeholder="Contoh: Kalibrasi ulang angka meteran air pasca perbaikan pipa..."
-                value={correctionReason}
-                onChange={(e) => setCorrectionReason(e.target.value)}
-              />
-            </div>
-
-            <div className="flex items-center gap-2 pt-2">
-              <button
-                className="flex-1 py-2.5 rounded-xl bg-surface-container text-on-surface font-title-sm text-title-sm font-bold"
-                onClick={() => setCorrectionModalDate(null)}
-                type="button"
-              >
-                Batal
-              </button>
-              <button
-                className="flex-1 py-2.5 rounded-xl bg-primary text-on-primary font-title-sm text-title-sm font-bold"
-                disabled={isSavingCorrection}
-                onClick={handleSaveCorrection}
-                type="button"
-              >
-                {isSavingCorrection ? 'Menyimpan...' : 'Simpan Koreksi'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       <BottomNav />
     </div>
