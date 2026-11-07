@@ -7,10 +7,10 @@ import { formatRupiah, formatThousands, parseThousands } from '@/lib/calculation
 
 // Base rates per unit
 const RATES = {
-  electricity: 1450, // Rp / kWh
-  water: 7500,       // Rp / m³
-  gas: 15000,        // Rp / m³
-  fuel: 15000,       // Rp / Liter
+  electricity: 2005,  // Rp / kWh
+  water: 18862,       // Rp / m³
+  gas: 15000,         // Rp / m³
+  fuel: 22000,        // Rp / Liter
 };
 
 export default function InputMeterPage() {
@@ -109,7 +109,7 @@ export default function InputMeterPage() {
   const calcElectricity = (
     currentStr: string,
     prevVal: number | null,
-    rate: number = 1450,
+    rate: number = 2005,
     ppjPercent: number = 7
   ) => {
     if (!currentStr || isNaN(parseFloat(currentStr))) return null;
@@ -341,7 +341,7 @@ export default function InputMeterPage() {
               </div>
               <div>
                 <div className="text-sm font-bold text-gray-900">Meter Listrik (PLN)</div>
-                <div className="text-[10px] text-gray-400">Tarif: Rp 1.450 / kWh + PPJ 7%</div>
+                <div className="text-[10px] text-gray-400">Tarif: Rp 2.005 / kWh + PPJ 7%</div>
               </div>
             </div>
             {prevReadings.electricity != null && (
@@ -380,7 +380,7 @@ export default function InputMeterPage() {
 
               <div className="space-y-1 text-xs">
                 <div className="flex items-center justify-between text-amber-900/85">
-                  <span>Nilai Asli ({elecCalc.consumption.toLocaleString('id-ID')} kWh × Rp 1.450)</span>
+                  <span>Nilai Asli ({elecCalc.consumption.toLocaleString('id-ID')} kWh × Rp 2.005)</span>
                   <span className="font-bold">{formatRupiah(elecCalc.baseCost)}</span>
                 </div>
                 <div className="flex items-center justify-between text-amber-900/85">
@@ -423,7 +423,7 @@ export default function InputMeterPage() {
               </div>
               <div>
                 <div className="text-sm font-bold text-gray-900">Meter Air Bersih</div>
-                <div className="text-[10px] text-gray-400">Tarif: Rp 7.500 / m³</div>
+                <div className="text-[10px] text-gray-400">Tarif: Rp 18.862 / m³</div>
               </div>
             </div>
             {prevReadings.water != null && (
@@ -551,7 +551,7 @@ export default function InputMeterPage() {
               </div>
               <div>
                 <div className="text-sm font-bold text-gray-900">Pemakaian Solar Harian</div>
-                <div className="text-[10px] text-gray-400">Tarif: Rp 15.000 / Liter</div>
+                <div className="text-[10px] text-gray-400">Tarif: Rp 22.000 / Liter</div>
               </div>
             </div>
           </div>

@@ -190,7 +190,7 @@ let memoryTariffs: Record<string, TariffRate> = {
     id: 'tar-elec',
     utility: 'electricity',
     effectiveDate: '2026-01-01',
-    baseRatePerUnit: 1450,
+    baseRatePerUnit: 2005, // Rp 2.005 / kWh
     monthlyFixedCost: 0,
     percentageComponentRate: 0.07, // 7% Pajak Penerangan Jalan (PPJ)
     percentageBasis: 'variable',
@@ -200,7 +200,7 @@ let memoryTariffs: Record<string, TariffRate> = {
     id: 'tar-water',
     utility: 'water',
     effectiveDate: '2026-01-01',
-    baseRatePerUnit: 7500,
+    baseRatePerUnit: 18862, // Rp 18.862 / m³
     monthlyFixedCost: 0,
     percentageComponentRate: 0,
     percentageBasis: 'variable',
@@ -220,7 +220,7 @@ let memoryTariffs: Record<string, TariffRate> = {
     id: 'tar-fuel',
     utility: 'fuel',
     effectiveDate: '2026-01-01',
-    baseRatePerUnit: 15000,
+    baseRatePerUnit: 22000, // Rp 22.000 / Liter
     monthlyFixedCost: 0,
     percentageComponentRate: 0,
     percentageBasis: 'variable',
