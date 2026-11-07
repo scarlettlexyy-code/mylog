@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import { Header } from '@/components/Header';
 import { BottomNav } from '@/components/BottomNav';
+import { formatRupiah } from '@/lib/calculations';
 
 function getQuarters() {
   const qs = [];
@@ -95,8 +96,7 @@ export default function LaporanPage() {
   const totalOpex = summary?.totalOpex ?? 0;
   const totalCost = data?.currentPeriodCost?.total ?? 0;
 
-  const fmtRp = (n: number) =>
-    n >= 1_000_000 ? `Rp ${(n / 1_000_000).toFixed(2)}M` : `Rp ${Math.round(n / 1000)}K`;
+  const fmtRp = (n: number) => formatRupiah(n);
 
   const dossiers = [
     {
@@ -225,15 +225,15 @@ export default function LaporanPage() {
             { label: 'Water', value: totalWater, unit: 'm³', color: 'bg-blue-400', pct: totalWater > 0 ? 60 : 0 },
             { label: 'Gas', value: totalGas, unit: 'm³', color: 'bg-teal-400', pct: totalGas > 0 ? 40 : 0 },
             { label: 'Fuel', value: totalFuel, unit: 'L', color: 'bg-orange-400', pct: totalFuel > 0 ? 55 : 0 },
-            { label: 'Opex', value: totalOpex / 1000, unit: 'K IDR', color: 'bg-purple-400', pct: totalOpex > 0 ? 70 : 0 },
+            { label: 'Opex', value: totalOpex, unit: '', color: 'bg-purple-400', pct: totalOpex > 0 ? 70 : 0, isCurrency: true },
           ].map((item) => (
             <div key={item.label} className="flex items-center gap-3 mb-2.5 last:mb-0">
               <span className="text-xs font-semibold text-gray-600 w-20 shrink-0">{item.label}</span>
               <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
                 <div className={`h-full rounded-full ${item.color}`} style={{ width: `${item.pct}%` }} />
               </div>
-              <span className="text-xs font-bold text-gray-900 w-20 text-right shrink-0">
-                {item.value.toFixed(1)} {item.unit}
+              <span className="text-xs font-bold text-gray-900 w-28 text-right shrink-0">
+                {item.isCurrency ? formatRupiah(item.value) : `${item.value.toFixed(1)} ${item.unit}`}
               </span>
             </div>
           ))}

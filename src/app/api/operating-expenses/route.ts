@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getOperatingExpenses, saveOperatingExpense } from '@/lib/sheets';
 import { calculateComparisonDelta } from '@/lib/calculations';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET() {
   const opex = await getOperatingExpenses();
   return NextResponse.json({ opex });

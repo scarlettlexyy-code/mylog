@@ -321,6 +321,25 @@ export function formatRupiah(amount: number | null | undefined): string {
 }
 
 /**
+ * Formats a raw numeric string to Indonesian thousands separator format (e.g. "1500000" -> "1.500.000")
+ */
+export function formatThousands(val: string | number | null | undefined): string {
+  if (val === null || val === undefined || val === '') return '';
+  const clean = String(val).replace(/\D/g, '');
+  if (!clean) return '';
+  return parseInt(clean, 10).toLocaleString('id-ID');
+}
+
+/**
+ * Parses a formatted string back to raw number (e.g. "1.500.000" -> 1500000)
+ */
+export function parseThousands(val: string | number | null | undefined): number {
+  if (val === null || val === undefined || val === '') return 0;
+  const clean = String(val).replace(/\D/g, '');
+  return clean ? parseInt(clean, 10) : 0;
+}
+
+/**
  * Decimal number formatter with Indonesian comma decimal separator
  */
 export function formatDecimal(val: number | null | undefined, decimals: number = 1): string {

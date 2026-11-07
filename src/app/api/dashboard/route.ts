@@ -14,11 +14,14 @@ import {
   evaluateSpikeAlert,
 } from '@/lib/calculations';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
-    const targetDate = searchParams.get('date') || '2026-10-26';
-    const month = targetDate.substring(0, 7); // e.g. "2026-10"
+    const todayStr = new Date().toISOString().split('T')[0];
+    const targetDate = searchParams.get('date') || todayStr;
+    const month = targetDate.substring(0, 7); // e.g. "2026-11"
 
     const [readings, fuels, opexs, tariffs, budget] = await Promise.all([
       getMeterReadings(),
@@ -36,7 +39,9 @@ export async function GET(req: NextRequest) {
     // Target day and previous day records
     const todayReading = sortedReadings.find((r) => r.date === targetDate);
     const readingIdx = sortedReadings.findIndex((r) => r.date === targetDate);
-    const prevReading = readingIdx > 0 ? sortedReadings[readingIdx - 1] : null;
+    const prevReading = readingIdx > 0 
+      ? sortedReadings[readingIdx - 1] 
+      : (sortedReadings.length > 0 && !todayReading ? sortedReadings[sortedReadings.length - 1] : null);
 
     const todayFuel = sortedFuels.find((f) => f.date === targetDate);
     const fuelIdx = sortedFuels.findIndex((f) => f.date === targetDate);
@@ -63,7 +68,6 @@ export async function GET(req: NextRequest) {
         isElecComplete = costRes.isComplete;
       }
     }
-    // Calculate previous electricity cost for comparison if available
     if (readingIdx > 1 && sortedReadings[readingIdx - 2]?.electricityMeter != null && prevReading?.electricityMeter != null) {
       const prevRes = calculateMeterConsumption(
         prevReading.electricityMeter,
@@ -128,14 +132,14 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // 4. Fuel calculation (PRD 10.2: liters consumed)
+    // 4. Fuel calculation
     const solarLiters = todayFuel ? todayFuel.solarLiters : 0;
     const solarCost = calculateEnergyCost(solarLiters, tariffs.fuel).totalCost;
     const isFuelComplete = todayFuel != null;
     const prevSolarLiters = prevFuel ? prevFuel.solarLiters : 0;
     const prevSolarCost = calculateEnergyCost(prevSolarLiters, tariffs.fuel).totalCost;
 
-    // 5. Operating Expenses (PRD 9: total amount)
+    // 5. Operating Expenses
     const opexAmount = todayOpex ? todayOpex.totalAmount : 0;
     const isOpexComplete = todayOpex != null;
     const prevOpexAmount = prevOpex ? prevOpex.totalAmount : null;
@@ -145,7 +149,7 @@ export async function GET(req: NextRequest) {
     const energySubtotal = elecCost + waterCost + gasCost + solarCost;
     const grandTotal = energySubtotal + opexAmount;
 
-    // Completeness evaluation (PRD Section 11)
+    // Completeness
     const completeness = [
       isElecComplete,
       isWaterComplete,
@@ -156,7 +160,7 @@ export async function GET(req: NextRequest) {
     const completedCount = completeness.filter(Boolean).length;
     const isFullyComplete = completedCount === 5;
 
-    // Period deltas (Today vs Yesterday in Rp and %)
+    // Period deltas
     const elecCostDelta = calculateComparisonDelta(elecCost, elecPrevCost || null);
     const waterCostDelta = calculateComparisonDelta(waterCost, waterPrevCost || null);
     const gasCostDelta = calculateComparisonDelta(gasCost, gasPrevCost || null);
@@ -166,7 +170,7 @@ export async function GET(req: NextRequest) {
       (elecPrevCost + waterPrevCost + gasPrevCost + prevSolarCost + (prevOpexAmount || 0)) || null
     );
 
-    // Spike Alerts (PRD Section 12)
+    // Spike Alerts
     const alerts = [
       evaluateSpikeAlert('electricity', elecCost, elecPrevCost || null, targetDate),
       evaluateSpikeAlert('water', waterCost, waterPrevCost || null, targetDate),
@@ -175,13 +179,44 @@ export async function GET(req: NextRequest) {
     ];
     const activeSpikes = alerts.filter((a) => a.isSpike);
 
-    // Month-to-date calculation & Budget Tracking
-    // Sum for month of October
-    const mtdTotalSpent = 34200000; // Aligned with Stitch UI mockups (Rp 34.200.000)
-    const budgetUtilization = calculateBudgetUtilization(
-      mtdTotalSpent,
-      budget ? budget.totalBudget : 50000000
-    );
+    // Real Month-to-date calculation for this month
+    let mtdElecConsumption = 0;
+    let mtdWaterConsumption = 0;
+    let mtdGasConsumption = 0;
+
+    const monthReadings = sortedReadings.filter((r) => r.date.startsWith(month));
+    for (let i = 0; i < monthReadings.length; i++) {
+      const cur = monthReadings[i];
+      const cIdx = sortedReadings.findIndex((r) => r.id === cur.id);
+      if (cIdx > 0) {
+        const pr = sortedReadings[cIdx - 1];
+        if (cur.electricityMeter != null && pr.electricityMeter != null && cur.electricityMeter >= pr.electricityMeter) {
+          mtdElecConsumption += (cur.electricityMeter - pr.electricityMeter);
+        }
+        if (cur.waterMeter != null && pr.waterMeter != null && cur.waterMeter >= pr.waterMeter) {
+          mtdWaterConsumption += (cur.waterMeter - pr.waterMeter);
+        }
+        if (cur.gasMeter != null && pr.gasMeter != null && cur.gasMeter >= pr.gasMeter) {
+          mtdGasConsumption += (cur.gasMeter - pr.gasMeter);
+        }
+      }
+    }
+
+    const monthFuels = sortedFuels.filter((f) => f.date.startsWith(month));
+    const mtdFuelLiters = monthFuels.reduce((sum, f) => sum + (f.solarLiters || 0), 0);
+
+    const monthOpex = sortedOpex.filter((o) => o.date.startsWith(month));
+    const mtdOpexAmount = monthOpex.reduce((sum, o) => sum + (o.totalAmount || 0), 0);
+
+    const mtdElecCost = Math.round(mtdElecConsumption * (tariffs.electricity?.baseRatePerUnit || 1450));
+    const mtdWaterCost = Math.round(mtdWaterConsumption * (tariffs.water?.baseRatePerUnit || 7500));
+    const mtdGasCost = Math.round(mtdGasConsumption * (tariffs.gas?.baseRatePerUnit || 15000));
+    const mtdFuelCost = Math.round(mtdFuelLiters * (tariffs.fuel?.baseRatePerUnit || 15000));
+    const mtdEnergyCost = mtdElecCost + mtdWaterCost + mtdGasCost + mtdFuelCost;
+    const mtdTotalSpent = mtdEnergyCost + mtdOpexAmount;
+
+    const activeTotalBudget = budget?.totalBudget || 50000000;
+    const budgetUtilization = calculateBudgetUtilization(mtdTotalSpent, activeTotalBudget);
 
     return NextResponse.json({
       targetDate,
@@ -197,85 +232,101 @@ export async function GET(req: NextRequest) {
           opex: isOpexComplete,
         },
       },
+      currentPeriodSummary: {
+        totalElectricityConsumption: mtdElecConsumption,
+        totalElectricityCost: mtdElecCost,
+        totalWaterConsumption: mtdWaterConsumption,
+        totalWaterCost: mtdWaterCost,
+        totalGasConsumption: mtdGasConsumption,
+        totalGasCost: mtdGasCost,
+        totalFuel: mtdFuelLiters,
+        totalFuelCost: mtdFuelCost,
+        totalOpex: mtdOpexAmount,
+        totalEnergyCost: mtdEnergyCost,
+        grandTotalCost: mtdTotalSpent,
+      },
       today: {
+        hasData: !!(todayReading || todayFuel || todayOpex),
+        date: targetDate,
         electricity: {
-          currentMeter: todayReading?.electricityMeter || 14892.0,
-          previousMeter: prevReading?.electricityMeter || 14708.0,
-          consumption: elecConsumption || 184.0,
+          currentMeter: todayReading?.electricityMeter ?? null,
+          previousMeter: prevReading?.electricityMeter ?? null,
+          consumption: elecConsumption,
           unit: 'kWh',
-          cost: elecCost || 266800,
+          cost: elecCost,
           delta: elecCostDelta,
         },
         water: {
-          currentMeter: todayReading?.waterMeter || 3120.0,
-          previousMeter: prevReading?.waterMeter || 3105.5,
-          consumption: waterConsumption || 14.5,
+          currentMeter: todayReading?.waterMeter ?? null,
+          previousMeter: prevReading?.waterMeter ?? null,
+          consumption: waterConsumption,
           unit: 'm³',
-          cost: waterCost || 108750,
+          cost: waterCost,
           delta: waterCostDelta,
         },
         gas: {
-          currentMeter: todayReading?.gasMeter || 942.0,
-          previousMeter: prevReading?.gasMeter || 933.8,
-          consumption: gasConsumption || 8.2,
+          currentMeter: todayReading?.gasMeter ?? null,
+          previousMeter: prevReading?.gasMeter ?? null,
+          consumption: gasConsumption,
           unit: 'm³',
-          cost: gasCost || 123000,
+          cost: gasCost,
           delta: gasCostDelta,
         },
         fuel: {
-          liters: solarLiters || 35,
-          cost: solarCost || 525000,
-          gensetStatus: todayFuel?.gensetStatus || 'Running Test 1.5 Jam',
+          liters: solarLiters,
+          cost: solarCost,
+          gensetStatus: todayFuel?.gensetStatus || 'Running Test Normal',
           delta: fuelCostDelta,
         },
         opex: {
-          totalAmount: opexAmount || 1720000,
-          previousAmount: prevOpexAmount || 1450000,
+          totalAmount: opexAmount,
+          previousAmount: prevOpexAmount,
           delta: opexDelta,
         },
-        energySubtotal: energySubtotal || 1023550,
-        grandTotal: grandTotal || 2623550,
+        energySubtotal: energySubtotal,
+        grandTotal: grandTotal,
         grandTotalDelta: totalDailyDelta,
       },
       budget: {
         month,
-        totalBudget: budget?.totalBudget || 50000000,
+        totalBudget: activeTotalBudget,
         spentMtd: mtdTotalSpent,
-        remaining: (budget?.totalBudget || 50000000) - mtdTotalSpent,
+        remaining: Math.max(0, activeTotalBudget - mtdTotalSpent),
         utilization: budgetUtilization,
         categories: {
           electricity: {
             budget: budget?.electricityBudget || 15000000,
-            spent: 11200000,
-            percent: 74.7,
-            status: 'Aman',
+            spent: mtdElecCost,
+            percent: (budget?.electricityBudget || 0) > 0 ? (mtdElecCost / budget!.electricityBudget) * 100 : 0,
+            status: mtdElecCost > (budget?.electricityBudget || 15000000) ? 'Bahaya' : 'Aman',
           },
           water: {
             budget: budget?.waterBudget || 4500000,
-            spent: 3900000,
-            percent: 86.7,
-            status: 'Waspada',
+            spent: mtdWaterCost,
+            percent: (budget?.waterBudget || 0) > 0 ? (mtdWaterCost / budget!.waterBudget) * 100 : 0,
+            status: mtdWaterCost > (budget?.waterBudget || 4500000) ? 'Bahaya' : 'Aman',
           },
           gas: {
             budget: budget?.gasBudget || 3500000,
-            spent: 2200000,
-            percent: 62.9,
-            status: 'Aman',
+            spent: mtdGasCost,
+            percent: (budget?.gasBudget || 0) > 0 ? (mtdGasCost / budget!.gasBudget) * 100 : 0,
+            status: mtdGasCost > (budget?.gasBudget || 3500000) ? 'Bahaya' : 'Aman',
           },
           fuel: {
             budget: budget?.fuelBudget || 7000000,
-            spent: 5800000,
-            percent: 82.9,
-            status: 'Waspada',
+            spent: mtdFuelCost,
+            percent: (budget?.fuelBudget || 0) > 0 ? (mtdFuelCost / budget!.fuelBudget) * 100 : 0,
+            status: mtdFuelCost > (budget?.fuelBudget || 7000000) ? 'Bahaya' : 'Aman',
           },
           opex: {
             budget: budget?.opexBudget || 20000000,
-            spent: 11100000,
-            percent: 55.5,
-            status: 'Aman',
+            spent: mtdOpexAmount,
+            percent: (budget?.opexBudget || 0) > 0 ? (mtdOpexAmount / budget!.opexBudget) * 100 : 0,
+            status: mtdOpexAmount > (budget?.opexBudget || 20000000) ? 'Bahaya' : 'Aman',
           },
         },
       },
+      recentReadings: sortedReadings.slice(-10).reverse(),
       alerts: {
         activeSpikes,
         allEvaluated: alerts,

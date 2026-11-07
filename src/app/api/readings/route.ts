@@ -2,9 +2,21 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getMeterReadings, recordMeterCycle, saveMeterReading } from '@/lib/sheets';
 import { calculateMeterConsumption } from '@/lib/calculations';
 
-export async function GET() {
+export const dynamic = 'force-dynamic';
+
+export async function GET(req: NextRequest) {
+  const { searchParams } = new URL(req.url);
+  const targetDate = searchParams.get('date');
   const readings = await getMeterReadings();
-  return NextResponse.json({ readings });
+  const sorted = [...readings].sort((a, b) => a.date.localeCompare(b.date));
+
+  if (targetDate) {
+    const existing = sorted.find((r) => r.date === targetDate);
+    const previous = [...sorted].reverse().find((r) => r.date < targetDate);
+    return NextResponse.json({ readings: sorted, existing, previous });
+  }
+
+  return NextResponse.json({ readings: sorted });
 }
 
 export async function POST(req: NextRequest) {
@@ -19,7 +31,7 @@ export async function POST(req: NextRequest) {
       resetUtility,
       resetBaseline,
       resetReason,
-      userEmail = 'wayan.sudarma@agranusavilla.com',
+      userEmail = 'supervisor@agranusavilla.com',
       reason,
     } = body;
 
@@ -29,7 +41,7 @@ export async function POST(req: NextRequest) {
 
     const readings = await getMeterReadings();
     const sorted = [...readings].sort((a, b) => a.date.localeCompare(b.date));
-    const previousReading = sorted.reverse().find((r) => r.date < date);
+    const previousReading = [...sorted].reverse().find((r) => r.date < date);
 
     // Validate monotonicity if previous meter exists and reset is not active
     if (previousReading) {
@@ -93,7 +105,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      message: 'Data meteran berhasil disimpan ke database',
+      message: 'Data meteran berhasil disimpan ke database Google Sheets',
       reading: saved,
     });
   } catch (error) {

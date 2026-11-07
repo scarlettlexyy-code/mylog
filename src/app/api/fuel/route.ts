@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getFuelReadings, saveFuelReading } from '@/lib/sheets';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET() {
   const fuels = await getFuelReadings();
   return NextResponse.json({ fuels });

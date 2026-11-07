@@ -65,10 +65,15 @@ async function callAppsScript(action: string, payload?: any) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action, ...payload }),
+        cache: 'no-store',
+        redirect: 'follow',
       });
       return await res.json();
     } else {
-      const res = await fetch(`${scriptUrl}?action=${action}`);
+      const res = await fetch(`${scriptUrl}?action=${action}`, {
+        cache: 'no-store',
+        redirect: 'follow',
+      });
       return await res.json();
     }
   } catch (err) {
@@ -281,9 +286,9 @@ export async function getMeterReadings(): Promise<MeterReading[]> {
       return res.readings.map((r: any) => ({
         id: r.id || '',
         date: r.date || '',
-        electricityMeter: r.electricityMeter ? parseFloat(r.electricityMeter) : null,
-        waterMeter: r.waterMeter ? parseFloat(r.waterMeter) : null,
-        gasMeter: r.gasMeter ? parseFloat(r.gasMeter) : null,
+        electricityMeter: r.electricityMeter != null && r.electricityMeter !== '' ? parseFloat(r.electricityMeter) : null,
+        waterMeter: r.waterMeter != null && r.waterMeter !== '' ? parseFloat(r.waterMeter) : null,
+        gasMeter: r.gasMeter != null && r.gasMeter !== '' ? parseFloat(r.gasMeter) : null,
         recordedAt: r.recordedAt || '',
         recordedBy: r.recordedBy || 'Supervisor',
         isArchived: r.isArchived === 'TRUE' || r.isArchived === true,
@@ -353,7 +358,7 @@ export async function saveMeterReading(
 
   // 1. Send to Apps Script Web App
   if (process.env.GOOGLE_APPS_SCRIPT_URL) {
-    callAppsScript('saveReading', {
+    await callAppsScript('saveReading', {
       date: newRecord.date,
       electricityMeter: newRecord.electricityMeter,
       waterMeter: newRecord.waterMeter,
@@ -402,7 +407,7 @@ export async function getFuelReadings(): Promise<FuelReading[]> {
       return res.fuels.map((f: any) => ({
         id: f.id || '',
         date: f.date || '',
-        solarLiters: f.solarLiters ? parseFloat(f.solarLiters) : 0,
+        solarLiters: f.solarLiters != null && f.solarLiters !== '' ? parseFloat(f.solarLiters) : 0,
         gensetStatus: f.gensetStatus || 'Running Test Normal',
         recordedAt: f.recordedAt || '',
         recordedBy: f.recordedBy || 'Supervisor',
@@ -437,7 +442,7 @@ export async function saveFuelReading(
   }
 
   if (process.env.GOOGLE_APPS_SCRIPT_URL) {
-    callAppsScript('saveFuel', {
+    await callAppsScript('saveFuel', {
       date: newRecord.date,
       solarLiters: newRecord.solarLiters,
       gensetStatus: newRecord.gensetStatus,
@@ -454,7 +459,7 @@ export async function getOperatingExpenses(): Promise<OperatingExpenseReading[]>
       return res.opex.map((o: any) => ({
         id: o.id || '',
         date: o.date || '',
-        totalAmount: o.totalAmount ? parseInt(o.totalAmount, 10) : 0,
+        totalAmount: o.totalAmount != null && o.totalAmount !== '' ? parseInt(o.totalAmount, 10) : 0,
         recordedAt: o.recordedAt || '',
         recordedBy: o.recordedBy || 'Supervisor',
         isArchived: o.isArchived === 'TRUE' || o.isArchived === true,
@@ -487,7 +492,7 @@ export async function saveOperatingExpense(
   }
 
   if (process.env.GOOGLE_APPS_SCRIPT_URL) {
-    callAppsScript('saveOpex', {
+    await callAppsScript('saveOpex', {
       date: newRecord.date,
       totalAmount: newRecord.totalAmount,
     });
@@ -501,6 +506,28 @@ export async function getTariffs(): Promise<Record<string, TariffRate>> {
 }
 
 export async function getMonthlyBudget(month: string): Promise<MonthlyBudget | null> {
+  if (process.env.GOOGLE_APPS_SCRIPT_URL) {
+    const res = await callAppsScript('getBudgets');
+    if (res?.success && Array.isArray(res.budgets)) {
+      const found = res.budgets.find((b: any) => String(b.month).trim() === String(month).trim());
+      if (found) {
+        return {
+          id: found.id || `budget-${found.month}`,
+          month: found.month,
+          mode: found.mode || 'sum_categories',
+          electricityBudget: Number(found.electricityBudget) || 0,
+          waterBudget: Number(found.waterBudget) || 0,
+          gasBudget: Number(found.gasBudget) || 0,
+          fuelBudget: Number(found.fuelBudget) || 0,
+          opexBudget: Number(found.opexBudget) || 0,
+          totalBudget: Number(found.totalBudget) || 0,
+          isConfigured: true,
+          updatedAt: found.updatedAt || '',
+          updatedBy: found.updatedBy || 'Supervisor Operasional',
+        };
+      }
+    }
+  }
   const budget = memoryBudgets.find((b) => b.month === month);
   return budget || null;
 }
@@ -520,7 +547,7 @@ export async function saveMonthlyBudget(budget: MonthlyBudget, userEmail: string
   }
 
   if (process.env.GOOGLE_APPS_SCRIPT_URL) {
-    callAppsScript('saveBudget', budget);
+    await callAppsScript('saveBudget', budget);
   }
 
   return updated;
