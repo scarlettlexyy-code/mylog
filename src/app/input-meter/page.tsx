@@ -105,6 +105,49 @@ export default function InputMeterPage() {
     setOpexDisplay(formatted);
   };
 
+  // Electricity with 7% PPJ calculation (khusus listrik saja)
+  const calcElectricity = (
+    currentStr: string,
+    prevVal: number | null,
+    rate: number = 1450,
+    ppjPercent: number = 7
+  ) => {
+    if (!currentStr || isNaN(parseFloat(currentStr))) return null;
+    const cur = parseFloat(currentStr);
+
+    let consumption = cur;
+    let isDelta = false;
+    let isLower = false;
+
+    if (prevVal != null) {
+      if (cur >= prevVal) {
+        consumption = parseFloat((cur - prevVal).toFixed(2));
+        isDelta = true;
+      } else {
+        isLower = true;
+        consumption = 0;
+      }
+    }
+
+    const baseCost = Math.round(consumption * rate);
+    const ppjCost = Math.round((baseCost * ppjPercent) / 100);
+    const totalCost = baseCost + ppjCost;
+
+    return {
+      prev: prevVal,
+      consumption,
+      rate,
+      baseCost,
+      ppjPercent,
+      ppjCost,
+      totalCost,
+      cost: totalCost,
+      unit: 'kWh',
+      isDelta,
+      isLower,
+    };
+  };
+
   // Helper calculations for automatic Rupiah cost below input
   const calcUtility = (
     currentStr: string,
@@ -115,32 +158,33 @@ export default function InputMeterPage() {
     if (!currentStr || isNaN(parseFloat(currentStr))) return null;
     const cur = parseFloat(currentStr);
 
-    if (prevVal != null && cur >= prevVal) {
-      const consumption = parseFloat((cur - prevVal).toFixed(2));
-      const cost = Math.round(consumption * rate);
-      return {
-        prev: prevVal,
-        consumption,
-        cost,
-        rate,
-        unit,
-        isDelta: true,
-      };
+    let consumption = cur;
+    let isDelta = false;
+    let isLower = false;
+
+    if (prevVal != null) {
+      if (cur >= prevVal) {
+        consumption = parseFloat((cur - prevVal).toFixed(2));
+        isDelta = true;
+      } else {
+        isLower = true;
+        consumption = 0;
+      }
     }
 
-    // Direct consumption or first entry
-    const cost = Math.round(cur * rate);
+    const cost = Math.round(consumption * rate);
     return {
       prev: prevVal,
-      consumption: cur,
+      consumption,
       cost,
       rate,
       unit,
-      isDelta: false,
+      isDelta,
+      isLower,
     };
   };
 
-  const elecCalc = calcUtility(electricity, prevReadings.electricity, RATES.electricity, 'kWh');
+  const elecCalc = calcElectricity(electricity, prevReadings.electricity, RATES.electricity, 7);
   const waterCalc = calcUtility(water, prevReadings.water, RATES.water, 'm³');
   const gasCalc = calcUtility(gas, prevReadings.gas, RATES.gas, 'm³');
   const solarLiters = parseFloat(solar) || 0;
@@ -297,7 +341,7 @@ export default function InputMeterPage() {
               </div>
               <div>
                 <div className="text-sm font-bold text-gray-900">Meter Listrik (PLN)</div>
-                <div className="text-[10px] text-gray-400">Tarif: Rp 1.450 / kWh</div>
+                <div className="text-[10px] text-gray-400">Tarif: Rp 1.450 / kWh + PPJ 7%</div>
               </div>
             </div>
             {prevReadings.electricity != null && (
@@ -320,23 +364,50 @@ export default function InputMeterPage() {
             <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs font-bold text-gray-400">kWh</span>
           </div>
 
-          {/* AUTOMATIC RUPIAH PREVIEW FIELD */}
-          {elecCalc && (
-            <div className="mt-2.5 p-3 rounded-xl bg-yellow-50/80 border border-yellow-200/80 flex items-center justify-between animate-fadeIn">
-              <div className="flex flex-col">
-                <span className="text-[10px] font-bold text-yellow-900 uppercase tracking-wider">
-                  {elecCalc.isDelta ? 'Konsumsi Bersih' : 'Jumlah Konsumsi'}
+          {/* AUTOMATIC RUPIAH PREVIEW FIELD WITH 7% PPJ BREAKDOWN */}
+          {elecCalc && !elecCalc.isLower && (
+            <div className="mt-2.5 p-3.5 rounded-xl bg-amber-50/90 border border-amber-200/90 flex flex-col gap-2 animate-fadeIn">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-bold text-amber-900 uppercase tracking-wider">
+                  {elecCalc.isDelta ? 'Konsumsi Bersih Listrik' : 'Jumlah Konsumsi'}
                 </span>
-                <span className="text-xs font-extrabold text-yellow-800">
+                <span className="text-xs font-black text-amber-900">
                   {elecCalc.consumption.toLocaleString('id-ID')} kWh
                 </span>
               </div>
-              <div className="text-right">
-                <span className="text-[10px] font-bold text-yellow-900 uppercase tracking-wider">Taksiran Biaya</span>
-                <div className="text-sm font-black text-yellow-700">
-                  {formatRupiah(elecCalc.cost)}
+
+              <div className="h-px bg-amber-200/60" />
+
+              <div className="space-y-1 text-xs">
+                <div className="flex items-center justify-between text-amber-900/85">
+                  <span>Nilai Asli ({elecCalc.consumption.toLocaleString('id-ID')} kWh × Rp 1.450)</span>
+                  <span className="font-bold">{formatRupiah(elecCalc.baseCost)}</span>
+                </div>
+                <div className="flex items-center justify-between text-amber-900/85">
+                  <span className="flex items-center gap-1">
+                    Pajak PPJ 7% <span className="text-[10px] text-amber-700/70">(Nilai Asli × 7 / 100)</span>
+                  </span>
+                  <span className="font-bold text-amber-800">+ {formatRupiah(elecCalc.ppjCost)}</span>
                 </div>
               </div>
+
+              <div className="pt-2 border-t border-amber-200 flex items-center justify-between">
+                <div>
+                  <span className="text-[10px] font-black text-amber-950 uppercase tracking-wider block">
+                    Hasil Bersih Listrik (+ PPJ 7%)
+                  </span>
+                  <span className="text-[9px] text-amber-700">Khusus Listrik PLN</span>
+                </div>
+                <div className="text-base font-black text-amber-900">
+                  {formatRupiah(elecCalc.totalCost)}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {elecCalc && elecCalc.isLower && (
+            <div className="mt-2 p-2.5 rounded-xl bg-red-50 border border-red-200 text-xs text-red-600 font-medium">
+              ⚠️ Angka meter baru lebih kecil dari meter kemarin ({prevReadings.electricity} kWh). Mohon periksa kembali.
             </div>
           )}
         </div>
@@ -376,7 +447,7 @@ export default function InputMeterPage() {
           </div>
 
           {/* AUTOMATIC RUPIAH PREVIEW FIELD */}
-          {waterCalc && (
+          {waterCalc && !waterCalc.isLower && (
             <div className="mt-2.5 p-3 rounded-xl bg-blue-50/80 border border-blue-200/80 flex items-center justify-between animate-fadeIn">
               <div className="flex flex-col">
                 <span className="text-[10px] font-bold text-blue-900 uppercase tracking-wider">
@@ -392,6 +463,12 @@ export default function InputMeterPage() {
                   {formatRupiah(waterCalc.cost)}
                 </div>
               </div>
+            </div>
+          )}
+
+          {waterCalc && waterCalc.isLower && (
+            <div className="mt-2 p-2.5 rounded-xl bg-red-50 border border-red-200 text-xs text-red-600 font-medium">
+              ⚠️ Angka meter baru lebih kecil dari meter kemarin ({prevReadings.water} m³).
             </div>
           )}
         </div>
@@ -431,7 +508,7 @@ export default function InputMeterPage() {
           </div>
 
           {/* AUTOMATIC RUPIAH PREVIEW FIELD */}
-          {gasCalc && (
+          {gasCalc && !gasCalc.isLower && (
             <div className="mt-2.5 p-3 rounded-xl bg-teal-50/80 border border-teal-200/80 flex items-center justify-between animate-fadeIn">
               <div className="flex flex-col">
                 <span className="text-[10px] font-bold text-teal-900 uppercase tracking-wider">
@@ -447,6 +524,12 @@ export default function InputMeterPage() {
                   {formatRupiah(gasCalc.cost)}
                 </div>
               </div>
+            </div>
+          )}
+
+          {gasCalc && gasCalc.isLower && (
+            <div className="mt-2 p-2.5 rounded-xl bg-red-50 border border-red-200 text-xs text-red-600 font-medium">
+              ⚠️ Angka meter baru lebih kecil dari meter kemarin ({prevReadings.gas} m³).
             </div>
           )}
         </div>

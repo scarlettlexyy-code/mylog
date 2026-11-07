@@ -82,8 +82,12 @@ export function calculateEnergyCost(
     percentageBasisVal = variableCost + fixedCostDaily;
   }
 
+  const rateMultiplier = tariff.percentageComponentRate > 1
+    ? tariff.percentageComponentRate / 100
+    : tariff.percentageComponentRate;
+
   const percentageComponentCost = tariff.percentageComponentRate > 0
-    ? Math.round(percentageBasisVal * tariff.percentageComponentRate)
+    ? Math.round(percentageBasisVal * rateMultiplier)
     : 0;
 
   const totalCost = variableCost + fixedCostDaily + percentageComponentCost;

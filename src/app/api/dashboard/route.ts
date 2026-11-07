@@ -208,10 +208,10 @@ export async function GET(req: NextRequest) {
     const monthOpex = sortedOpex.filter((o) => o.date.startsWith(month));
     const mtdOpexAmount = monthOpex.reduce((sum, o) => sum + (o.totalAmount || 0), 0);
 
-    const mtdElecCost = Math.round(mtdElecConsumption * (tariffs.electricity?.baseRatePerUnit || 1450));
-    const mtdWaterCost = Math.round(mtdWaterConsumption * (tariffs.water?.baseRatePerUnit || 7500));
-    const mtdGasCost = Math.round(mtdGasConsumption * (tariffs.gas?.baseRatePerUnit || 15000));
-    const mtdFuelCost = Math.round(mtdFuelLiters * (tariffs.fuel?.baseRatePerUnit || 15000));
+    const mtdElecCost = calculateEnergyCost(mtdElecConsumption, tariffs.electricity).totalCost;
+    const mtdWaterCost = calculateEnergyCost(mtdWaterConsumption, tariffs.water).totalCost;
+    const mtdGasCost = calculateEnergyCost(mtdGasConsumption, tariffs.gas).totalCost;
+    const mtdFuelCost = calculateEnergyCost(mtdFuelLiters, tariffs.fuel).totalCost;
     const mtdEnergyCost = mtdElecCost + mtdWaterCost + mtdGasCost + mtdFuelCost;
     const mtdTotalSpent = mtdEnergyCost + mtdOpexAmount;
 

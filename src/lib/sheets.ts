@@ -192,7 +192,7 @@ let memoryTariffs: Record<string, TariffRate> = {
     effectiveDate: '2026-01-01',
     baseRatePerUnit: 1450,
     monthlyFixedCost: 0,
-    percentageComponentRate: 0,
+    percentageComponentRate: 0.07, // 7% Pajak Penerangan Jalan (PPJ)
     percentageBasis: 'variable',
     isConfigured: true,
   },
