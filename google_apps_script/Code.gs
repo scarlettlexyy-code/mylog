@@ -261,7 +261,13 @@ function doPost(e) {
 
     // 4. Simpan Pagu Anggaran
     if (action === 'saveBudget') {
-      const sheet = ss.getSheetByName(TABS.MONTHLY_BUDGETS);
+      let sheet = ss.getSheetByName(TABS.MONTHLY_BUDGETS);
+      if (!sheet) {
+        sheet = ss.insertSheet(TABS.MONTHLY_BUDGETS);
+        sheet.appendRow(['id', 'month', 'mode', 'electricityBudget', 'waterBudget', 'gasBudget', 'fuelBudget', 'opexBudget', 'totalBudget', 'isConfigured', 'updatedAt', 'updatedBy']);
+        sheet.getRange(1, 1, 1, 12).setFontWeight('bold').setBackground('#E2E8F0');
+        sheet.setFrozenRows(1);
+      }
       const rowId = 'budget-' + body.month;
       const existingRow = findRowIndexById(sheet, rowId);
       const timestamp = getNowWita();

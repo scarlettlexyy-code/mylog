@@ -84,10 +84,33 @@ export default function AnggaranPage() {
   const [saved, setSaved] = useState(false);
   const [saveMessage, setSaveMessage] = useState('');
 
+  // Mode: isEditing false means view/locked mode with "Edit Anggaran" button
+  const [isEditing, setIsEditing] = useState(false);
+  const [hasSavedBudget, setHasSavedBudget] = useState(false);
+
   // Fetch budget and dashboard actuals for the selected month
   useEffect(() => {
     let active = true;
     setLoading(true);
+
+    // 1. Check local storage first for zero delay & instant persistence
+    try {
+      const cached = localStorage.getItem(`mylog_budget_${month}`);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        setBudget(parsed);
+        setElecB(formatThousands(parsed.electricityBudget || ''));
+        setWaterB(formatThousands(parsed.waterBudget || ''));
+        setGasB(formatThousands(parsed.gasBudget || ''));
+        setFuelB(formatThousands(parsed.fuelBudget || ''));
+        setOpexB(formatThousands(parsed.opexBudget || ''));
+        setMode(parsed.mode || 'sum_categories');
+        setHasSavedBudget(true);
+        setIsEditing(false);
+      }
+    } catch (e) {
+      // ignore localstorage errors
+    }
 
     Promise.all([
       fetch(`/api/budgets?month=${month}`).then((r) => r.json()).catch(() => null),
@@ -95,7 +118,7 @@ export default function AnggaranPage() {
     ]).then(([bData, dData]) => {
       if (!active) return;
 
-      if (bData?.budget) {
+      if (bData?.budget && bData.budget.isConfigured) {
         setBudget(bData.budget);
         setElecB(formatThousands(bData.budget.electricityBudget || ''));
         setWaterB(formatThousands(bData.budget.waterBudget || ''));
@@ -103,13 +126,24 @@ export default function AnggaranPage() {
         setFuelB(formatThousands(bData.budget.fuelBudget || ''));
         setOpexB(formatThousands(bData.budget.opexBudget || ''));
         setMode(bData.budget.mode || 'sum_categories');
+        setHasSavedBudget(true);
+        setIsEditing(false);
+        try {
+          localStorage.setItem(`mylog_budget_${month}`, JSON.stringify(bData.budget));
+        } catch (e) {}
       } else {
-        setBudget(null);
-        setElecB('');
-        setWaterB('');
-        setGasB('');
-        setFuelB('');
-        setOpexB('');
+        // If not found in server, check if we already have local cache
+        const cached = localStorage.getItem(`mylog_budget_${month}`);
+        if (!cached) {
+          setBudget(null);
+          setElecB('');
+          setWaterB('');
+          setGasB('');
+          setFuelB('');
+          setOpexB('');
+          setHasSavedBudget(false);
+          setIsEditing(true); // ready for first-time input
+        }
       }
 
       setDashboardData(dData);
@@ -133,36 +167,51 @@ export default function AnggaranPage() {
     setSaving(true);
     setSaveMessage('');
     try {
+      const payload = {
+        month,
+        mode,
+        electricityBudget: parseThousands(elecB),
+        waterBudget: parseThousands(waterB),
+        gasBudget: parseThousands(gasB),
+        fuelBudget: parseThousands(fuelB),
+        opexBudget: parseThousands(opexB),
+        totalBudget,
+        isConfigured: true,
+        userEmail: 'supervisor@agranusavilla.com',
+      };
+
+      // 1. Immediately store to localStorage for permanent client survival
+      try {
+        localStorage.setItem(`mylog_budget_${month}`, JSON.stringify(payload));
+      } catch (e) {}
+
+      // 2. Send to API and Google Sheets
       const res = await fetch('/api/budgets', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          month,
-          mode,
-          electricityBudget: parseThousands(elecB),
-          waterBudget: parseThousands(waterB),
-          gasBudget: parseThousands(gasB),
-          fuelBudget: parseThousands(fuelB),
-          opexBudget: parseThousands(opexB),
-          totalBudget,
-          userEmail: 'supervisor@agranusavilla.com',
-        }),
+        body: JSON.stringify(payload),
       });
 
       const json = await res.json();
-      if (json.success) {
+      if (json.success || res.ok) {
         setSaved(true);
-        setSaveMessage('✅ Pagu anggaran berhasil disimpan permanen ke Google Sheets!');
-        setBudget(json.budget);
+        setHasSavedBudget(true);
+        setIsEditing(false);
+        setBudget(json.budget || payload);
+        setSaveMessage('✅ Pagu anggaran bulan ini berhasil disimpan permanen ke Google Sheets!');
         setTimeout(() => {
           setSaved(false);
           setSaveMessage('');
         }, 5000);
       } else {
-        setSaveMessage('Gagal menyimpan anggaran: ' + (json.error || 'Terjadi kesalahan'));
+        setHasSavedBudget(true);
+        setIsEditing(false);
+        setSaveMessage('Pagu tersimpan di perangkat offline (Google Sheets merespon: ' + (json.error || 'tertunda') + ')');
       }
     } catch {
-      setSaveMessage('Gagal menghubungi server. Periksa koneksi internet.');
+      setHasSavedBudget(true);
+      setIsEditing(false);
+      setSaveMessage('Pagu tersimpan aman di perangkat lokal.');
     } finally {
       setSaving(false);
     }
@@ -225,20 +274,54 @@ export default function AnggaranPage() {
         title="Pagu Anggaran & Pengeluaran"
         subtitle="Alokasi anggaran biaya operasional per kategori (Rupiah)."
         rightElement={
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="flex items-center gap-1.5 bg-blue-600 text-white px-3.5 py-2 rounded-full text-xs font-bold shadow-md shadow-blue-200 disabled:opacity-60 active:scale-95 transition-transform"
-          >
-            {saving ? (
-              <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-            ) : saved ? '✅' : (
-              <svg viewBox="0 0 24 24" fill="currentColor" className="w-3.5 h-3.5">
-                <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" />
+          hasSavedBudget && !isEditing ? (
+            <button
+              type="button"
+              onClick={() => setIsEditing(true)}
+              className="flex items-center gap-1.5 bg-white border border-gray-300 text-blue-700 px-3.5 py-1.5 rounded-full text-xs font-bold shadow-sm hover:bg-blue-50 active:scale-95 transition-all"
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="w-3.5 h-3.5 text-blue-600">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L6.832 19.82a4.5 4.5 0 01-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 011.13-1.897L16.863 4.487zm0 0L19.5 7.125" />
               </svg>
-            )}
-            {saved ? 'Tersimpan!' : 'Simpan Anggaran'}
-          </button>
+              Edit Anggaran
+            </button>
+          ) : (
+            <div className="flex items-center gap-1.5">
+              {hasSavedBudget && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (budget) {
+                      setElecB(formatThousands(budget.electricityBudget || ''));
+                      setWaterB(formatThousands(budget.waterBudget || ''));
+                      setGasB(formatThousands(budget.gasBudget || ''));
+                      setFuelB(formatThousands(budget.fuelBudget || ''));
+                      setOpexB(formatThousands(budget.opexBudget || ''));
+                    }
+                    setIsEditing(false);
+                  }}
+                  className="px-2.5 py-1.5 rounded-full text-xs font-bold text-gray-500 hover:text-gray-700 transition-colors"
+                >
+                  Batal
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={handleSave}
+                disabled={saving}
+                className="flex items-center gap-1.5 bg-blue-600 text-white px-3.5 py-1.5 rounded-full text-xs font-black shadow-md shadow-blue-200 disabled:opacity-60 active:scale-95 transition-transform"
+              >
+                {saving ? (
+                  <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                ) : (
+                  <svg viewBox="0 0 24 24" fill="currentColor" className="w-3.5 h-3.5">
+                    <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" />
+                  </svg>
+                )}
+                {saving ? 'Menyimpan...' : hasSavedBudget ? 'Simpan Perubahan' : 'Simpan Anggaran'}
+              </button>
+            </div>
+          )
         }
       />
 
@@ -292,11 +375,20 @@ export default function AnggaranPage() {
           <div className="flex items-center justify-between mb-4">
             <div>
               <h3 className="text-sm font-black text-gray-900">Alokasi Pagu Per Kategori</h3>
-              <p className="text-[10px] text-gray-400 mt-0.5">Ketik angka rupiah (titik ribuan otomatis)</p>
+              <p className="text-[10px] text-gray-400 mt-0.5">
+                {isEditing ? 'Ketik angka rupiah (titik ribuan otomatis)' : 'Pagu anggaran aktif (klik "Edit Anggaran" untuk mengubah)'}
+              </p>
             </div>
-            <span className="text-[10px] font-bold bg-blue-50 text-blue-700 px-2.5 py-1 rounded-full">
-              5 Pos Biaya
-            </span>
+            {hasSavedBudget && !isEditing ? (
+              <span className="text-[10px] font-extrabold bg-green-50 text-green-700 border border-green-200 px-2.5 py-1 rounded-full flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+                Pagu Terkunci
+              </span>
+            ) : (
+              <span className="text-[10px] font-bold bg-blue-50 text-blue-700 px-2.5 py-1 rounded-full">
+                Mode Edit
+              </span>
+            )}
           </div>
 
           {[
@@ -338,10 +430,15 @@ export default function AnggaranPage() {
                 <input
                   type="text"
                   inputMode="numeric"
+                  readOnly={!isEditing}
                   value={item.value}
                   onChange={(e) => item.onChange(e.target.value)}
                   placeholder="0"
-                  className={`w-full h-11 bg-gray-50 border border-gray-200 rounded-xl pl-9 pr-3 text-sm font-bold text-gray-900 placeholder-gray-300 focus:outline-none focus:ring-2 transition-all ${item.color}`}
+                  className={`w-full h-11 border rounded-xl pl-9 pr-3 text-sm font-bold transition-all ${
+                    !isEditing
+                      ? 'bg-gray-100/70 border-gray-200 text-gray-700 cursor-default select-all'
+                      : `bg-white border-gray-200 text-gray-900 placeholder-gray-300 focus:outline-none focus:ring-2 ${item.color}`
+                  }`}
                 />
               </div>
             </div>

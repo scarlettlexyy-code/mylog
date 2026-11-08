@@ -43,40 +43,15 @@ export async function POST(req: NextRequest) {
     const sorted = [...readings].sort((a, b) => a.date.localeCompare(b.date));
     const previousReading = [...sorted].reverse().find((r) => r.date < date);
 
-    // Validate monotonicity if previous meter exists and reset is not active
-    if (previousReading) {
-      if (electricityMeter != null && previousReading.electricityMeter != null) {
-        if (isResetCycle && resetUtility === 'electricity') {
-          // Handled via meter cycle reset
-        } else {
-          const val = calculateMeterConsumption(electricityMeter, previousReading.electricityMeter);
-          if (!val.isValid) {
-            return NextResponse.json({ error: val.errorMessage }, { status: 422 });
-          }
-        }
-      }
-
-      if (waterMeter != null && previousReading.waterMeter != null) {
-        if (isResetCycle && resetUtility === 'water') {
-          // Handled via reset
-        } else {
-          const val = calculateMeterConsumption(waterMeter, previousReading.waterMeter);
-          if (!val.isValid) {
-            return NextResponse.json({ error: val.errorMessage }, { status: 422 });
-          }
-        }
-      }
-
-      if (gasMeter != null && previousReading.gasMeter != null) {
-        if (isResetCycle && resetUtility === 'gas') {
-          // Handled via reset
-        } else {
-          const val = calculateMeterConsumption(gasMeter, previousReading.gasMeter);
-          if (!val.isValid) {
-            return NextResponse.json({ error: val.errorMessage }, { status: 422 });
-          }
-        }
-      }
+    // Validasi nilai pemakaian harian (angka tidak boleh negatif)
+    if (electricityMeter != null && parseFloat(electricityMeter) < 0) {
+      return NextResponse.json({ error: 'Nilai pemakaian listrik tidak boleh negatif' }, { status: 422 });
+    }
+    if (waterMeter != null && parseFloat(waterMeter) < 0) {
+      return NextResponse.json({ error: 'Nilai konsumsi air tidak boleh negatif' }, { status: 422 });
+    }
+    if (gasMeter != null && parseFloat(gasMeter) < 0) {
+      return NextResponse.json({ error: 'Nilai pemakaian gas tidak boleh negatif' }, { status: 422 });
     }
 
     // If a physical meter replacement cycle was executed

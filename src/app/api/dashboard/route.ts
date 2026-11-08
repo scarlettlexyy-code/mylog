@@ -51,85 +51,49 @@ export async function GET(req: NextRequest) {
     const opexIdx = sortedOpex.findIndex((o) => o.date === targetDate);
     const prevOpex = opexIdx > 0 ? sortedOpex[opexIdx - 1] : null;
 
-    // 1. Electricity calculation
+    // 1. Electricity calculation (Direct daily total consumption)
     let elecConsumption = 0;
     let elecCost = 0;
     let elecPrevCost = 0;
     let isElecComplete = false;
-    if (todayReading?.electricityMeter != null && prevReading?.electricityMeter != null) {
-      const elecRes = calculateMeterConsumption(
-        todayReading.electricityMeter,
-        prevReading.electricityMeter
-      );
-      if (elecRes.isValid) {
-        elecConsumption = elecRes.consumption;
-        const costRes = calculateEnergyCost(elecConsumption, tariffs.electricity);
-        elecCost = costRes.totalCost;
-        isElecComplete = costRes.isComplete;
-      }
+    if (todayReading?.electricityMeter != null) {
+      elecConsumption = Number(todayReading.electricityMeter);
+      const costRes = calculateEnergyCost(elecConsumption, tariffs.electricity);
+      elecCost = costRes.totalCost;
+      isElecComplete = true;
     }
-    if (readingIdx > 1 && sortedReadings[readingIdx - 2]?.electricityMeter != null && prevReading?.electricityMeter != null) {
-      const prevRes = calculateMeterConsumption(
-        prevReading.electricityMeter,
-        sortedReadings[readingIdx - 2].electricityMeter!
-      );
-      if (prevRes.isValid) {
-        elecPrevCost = calculateEnergyCost(prevRes.consumption, tariffs.electricity).totalCost;
-      }
+    if (prevReading?.electricityMeter != null) {
+      elecPrevCost = calculateEnergyCost(Number(prevReading.electricityMeter), tariffs.electricity).totalCost;
     }
 
-    // 2. Water calculation
+    // 2. Water calculation (Direct daily total consumption)
     let waterConsumption = 0;
     let waterCost = 0;
     let waterPrevCost = 0;
     let isWaterComplete = false;
-    if (todayReading?.waterMeter != null && prevReading?.waterMeter != null) {
-      const waterRes = calculateMeterConsumption(
-        todayReading.waterMeter,
-        prevReading.waterMeter
-      );
-      if (waterRes.isValid) {
-        waterConsumption = waterRes.consumption;
-        const costRes = calculateEnergyCost(waterConsumption, tariffs.water);
-        waterCost = costRes.totalCost;
-        isWaterComplete = costRes.isComplete;
-      }
+    if (todayReading?.waterMeter != null) {
+      waterConsumption = Number(todayReading.waterMeter);
+      const costRes = calculateEnergyCost(waterConsumption, tariffs.water);
+      waterCost = costRes.totalCost;
+      isWaterComplete = true;
     }
-    if (readingIdx > 1 && sortedReadings[readingIdx - 2]?.waterMeter != null && prevReading?.waterMeter != null) {
-      const prevRes = calculateMeterConsumption(
-        prevReading.waterMeter,
-        sortedReadings[readingIdx - 2].waterMeter!
-      );
-      if (prevRes.isValid) {
-        waterPrevCost = calculateEnergyCost(prevRes.consumption, tariffs.water).totalCost;
-      }
+    if (prevReading?.waterMeter != null) {
+      waterPrevCost = calculateEnergyCost(Number(prevReading.waterMeter), tariffs.water).totalCost;
     }
 
-    // 3. Gas calculation
+    // 3. Gas calculation (Direct daily total consumption)
     let gasConsumption = 0;
     let gasCost = 0;
     let gasPrevCost = 0;
     let isGasComplete = false;
-    if (todayReading?.gasMeter != null && prevReading?.gasMeter != null) {
-      const gasRes = calculateMeterConsumption(
-        todayReading.gasMeter,
-        prevReading.gasMeter
-      );
-      if (gasRes.isValid) {
-        gasConsumption = gasRes.consumption;
-        const costRes = calculateEnergyCost(gasConsumption, tariffs.gas);
-        gasCost = costRes.totalCost;
-        isGasComplete = costRes.isComplete;
-      }
+    if (todayReading?.gasMeter != null) {
+      gasConsumption = Number(todayReading.gasMeter);
+      const costRes = calculateEnergyCost(gasConsumption, tariffs.gas);
+      gasCost = costRes.totalCost;
+      isGasComplete = true;
     }
-    if (readingIdx > 1 && sortedReadings[readingIdx - 2]?.gasMeter != null && prevReading?.gasMeter != null) {
-      const prevRes = calculateMeterConsumption(
-        prevReading.gasMeter,
-        sortedReadings[readingIdx - 2].gasMeter!
-      );
-      if (prevRes.isValid) {
-        gasPrevCost = calculateEnergyCost(prevRes.consumption, tariffs.gas).totalCost;
-      }
+    if (prevReading?.gasMeter != null) {
+      gasPrevCost = calculateEnergyCost(Number(prevReading.gasMeter), tariffs.gas).totalCost;
     }
 
     // 4. Fuel calculation
@@ -179,7 +143,7 @@ export async function GET(req: NextRequest) {
     ];
     const activeSpikes = alerts.filter((a) => a.isSpike);
 
-    // Real Month-to-date calculation for this month
+    // Real Month-to-date calculation for this month (Direct daily consumption sum)
     let mtdElecConsumption = 0;
     let mtdWaterConsumption = 0;
     let mtdGasConsumption = 0;
@@ -187,18 +151,14 @@ export async function GET(req: NextRequest) {
     const monthReadings = sortedReadings.filter((r) => r.date.startsWith(month));
     for (let i = 0; i < monthReadings.length; i++) {
       const cur = monthReadings[i];
-      const cIdx = sortedReadings.findIndex((r) => r.id === cur.id);
-      if (cIdx > 0) {
-        const pr = sortedReadings[cIdx - 1];
-        if (cur.electricityMeter != null && pr.electricityMeter != null && cur.electricityMeter >= pr.electricityMeter) {
-          mtdElecConsumption += (cur.electricityMeter - pr.electricityMeter);
-        }
-        if (cur.waterMeter != null && pr.waterMeter != null && cur.waterMeter >= pr.waterMeter) {
-          mtdWaterConsumption += (cur.waterMeter - pr.waterMeter);
-        }
-        if (cur.gasMeter != null && pr.gasMeter != null && cur.gasMeter >= pr.gasMeter) {
-          mtdGasConsumption += (cur.gasMeter - pr.gasMeter);
-        }
+      if (cur.electricityMeter != null) {
+        mtdElecConsumption += Number(cur.electricityMeter);
+      }
+      if (cur.waterMeter != null) {
+        mtdWaterConsumption += Number(cur.waterMeter);
+      }
+      if (cur.gasMeter != null) {
+        mtdGasConsumption += Number(cur.gasMeter);
       }
     }
 

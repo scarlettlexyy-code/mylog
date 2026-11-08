@@ -106,6 +106,7 @@ export default function InputMeterPage() {
   };
 
   // Electricity with 7% PPJ calculation (khusus listrik saja)
+  // Input adalah Total Pemakaian Harian (Daily Consumption) gabungan vila
   const calcElectricity = (
     currentStr: string,
     prevVal: number | null,
@@ -113,25 +114,17 @@ export default function InputMeterPage() {
     ppjPercent: number = 7
   ) => {
     if (!currentStr || isNaN(parseFloat(currentStr))) return null;
-    const cur = parseFloat(currentStr);
-
-    let consumption = cur;
-    let isDelta = false;
-    let isLower = false;
-
-    if (prevVal != null) {
-      if (cur >= prevVal) {
-        consumption = parseFloat((cur - prevVal).toFixed(2));
-        isDelta = true;
-      } else {
-        isLower = true;
-        consumption = 0;
-      }
-    }
+    const consumption = parseFloat(currentStr);
+    if (consumption < 0) return null;
 
     const baseCost = Math.round(consumption * rate);
     const ppjCost = Math.round((baseCost * ppjPercent) / 100);
     const totalCost = baseCost + ppjCost;
+
+    const delta = prevVal != null ? parseFloat((consumption - prevVal).toFixed(2)) : null;
+    const percentChange = prevVal != null && prevVal > 0 
+      ? parseFloat((((consumption - prevVal) / prevVal) * 100).toFixed(1))
+      : null;
 
     return {
       prev: prevVal,
@@ -142,13 +135,13 @@ export default function InputMeterPage() {
       ppjCost,
       totalCost,
       cost: totalCost,
+      delta,
+      percentChange,
       unit: 'kWh',
-      isDelta,
-      isLower,
     };
   };
 
-  // Helper calculations for automatic Rupiah cost below input
+  // Helper calculations for Water & Gas (Direct daily consumption)
   const calcUtility = (
     currentStr: string,
     prevVal: number | null,
@@ -156,31 +149,24 @@ export default function InputMeterPage() {
     unit: string
   ) => {
     if (!currentStr || isNaN(parseFloat(currentStr))) return null;
-    const cur = parseFloat(currentStr);
-
-    let consumption = cur;
-    let isDelta = false;
-    let isLower = false;
-
-    if (prevVal != null) {
-      if (cur >= prevVal) {
-        consumption = parseFloat((cur - prevVal).toFixed(2));
-        isDelta = true;
-      } else {
-        isLower = true;
-        consumption = 0;
-      }
-    }
+    const consumption = parseFloat(currentStr);
+    if (consumption < 0) return null;
 
     const cost = Math.round(consumption * rate);
+
+    const delta = prevVal != null ? parseFloat((consumption - prevVal).toFixed(2)) : null;
+    const percentChange = prevVal != null && prevVal > 0 
+      ? parseFloat((((consumption - prevVal) / prevVal) * 100).toFixed(1))
+      : null;
+
     return {
       prev: prevVal,
       consumption,
       cost,
       rate,
+      delta,
+      percentChange,
       unit,
-      isDelta,
-      isLower,
     };
   };
 
@@ -340,7 +326,7 @@ export default function InputMeterPage() {
                 </svg>
               </div>
               <div>
-                <div className="text-sm font-bold text-gray-900">Meter Listrik (PLN)</div>
+                <div className="text-sm font-bold text-gray-900">Total Pemakaian Listrik (PLN)</div>
                 <div className="text-[10px] text-gray-400">Tarif: Rp 2.005 / kWh + PPJ 7%</div>
               </div>
             </div>
@@ -358,20 +344,31 @@ export default function InputMeterPage() {
               step="any"
               value={electricity}
               onChange={(e) => setElectricity(e.target.value)}
-              placeholder={prevReadings.electricity != null ? `Contoh: ${(prevReadings.electricity + 50).toFixed(1)}` : 'Contoh: 3457.54'}
+              placeholder={prevReadings.electricity != null ? `Kemarin: ${prevReadings.electricity.toLocaleString('id-ID')}` : 'Contoh: 350.5'}
               className="w-full h-12 bg-gray-50 border border-gray-200 rounded-xl px-4 text-base font-bold text-gray-900 placeholder-gray-300 focus:outline-none focus:border-yellow-500 focus:ring-2 focus:ring-yellow-100 transition-all"
             />
             <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs font-bold text-gray-400">kWh</span>
           </div>
 
           {/* AUTOMATIC RUPIAH PREVIEW FIELD WITH 7% PPJ BREAKDOWN */}
-          {elecCalc && !elecCalc.isLower && (
+          {elecCalc && (
             <div className="mt-2.5 p-3.5 rounded-xl bg-amber-50/90 border border-amber-200/90 flex flex-col gap-2 animate-fadeIn">
               <div className="flex items-center justify-between">
-                <span className="text-[10px] font-bold text-amber-900 uppercase tracking-wider">
-                  {elecCalc.isDelta ? 'Konsumsi Bersih Listrik' : 'Jumlah Konsumsi'}
-                </span>
-                <span className="text-xs font-black text-amber-900">
+                <div>
+                  <span className="text-[10px] font-bold text-amber-900 uppercase tracking-wider block">
+                    Total Konsumsi Listrik Hari Ini
+                  </span>
+                  {elecCalc.delta != null && (
+                    <span className={`text-[10px] font-bold ${elecCalc.delta > 0 ? 'text-amber-800' : elecCalc.delta < 0 ? 'text-green-700' : 'text-gray-500'}`}>
+                      {elecCalc.delta > 0
+                        ? `▲ Naik +${elecCalc.delta.toLocaleString('id-ID')} kWh (${elecCalc.percentChange}%) vs kemarin`
+                        : elecCalc.delta < 0
+                        ? `▼ Turun ${Math.abs(elecCalc.delta).toLocaleString('id-ID')} kWh (${elecCalc.percentChange}%) vs kemarin`
+                        : 'Sama dengan pemakaian kemarin'}
+                    </span>
+                  )}
+                </div>
+                <span className="text-sm font-black text-amber-900">
                   {elecCalc.consumption.toLocaleString('id-ID')} kWh
                 </span>
               </div>
@@ -404,12 +401,6 @@ export default function InputMeterPage() {
               </div>
             </div>
           )}
-
-          {elecCalc && elecCalc.isLower && (
-            <div className="mt-2 p-2.5 rounded-xl bg-red-50 border border-red-200 text-xs text-red-600 font-medium">
-              ⚠️ Angka meter baru lebih kecil dari meter kemarin ({prevReadings.electricity} kWh). Mohon periksa kembali.
-            </div>
-          )}
         </div>
 
         {/* 2. Water Input */}
@@ -422,7 +413,7 @@ export default function InputMeterPage() {
                 </svg>
               </div>
               <div>
-                <div className="text-sm font-bold text-gray-900">Meter Air Bersih</div>
+                <div className="text-sm font-bold text-gray-900">Total Konsumsi Air Bersih</div>
                 <div className="text-[10px] text-gray-400">Tarif: Rp 18.862 / m³</div>
               </div>
             </div>
@@ -440,22 +431,31 @@ export default function InputMeterPage() {
               step="any"
               value={water}
               onChange={(e) => setWater(e.target.value)}
-              placeholder={prevReadings.water != null ? `Contoh: ${(prevReadings.water + 12).toFixed(1)}` : 'Contoh: 1428.4'}
+              placeholder={prevReadings.water != null ? `Kemarin: ${prevReadings.water.toLocaleString('id-ID')}` : 'Contoh: 14.5'}
               className="w-full h-12 bg-gray-50 border border-gray-200 rounded-xl px-4 text-base font-bold text-gray-900 placeholder-gray-300 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all"
             />
             <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs font-bold text-gray-400">m³</span>
           </div>
 
           {/* AUTOMATIC RUPIAH PREVIEW FIELD */}
-          {waterCalc && !waterCalc.isLower && (
+          {waterCalc && (
             <div className="mt-2.5 p-3 rounded-xl bg-blue-50/80 border border-blue-200/80 flex items-center justify-between animate-fadeIn">
               <div className="flex flex-col">
                 <span className="text-[10px] font-bold text-blue-900 uppercase tracking-wider">
-                  {waterCalc.isDelta ? 'Konsumsi Bersih' : 'Jumlah Konsumsi'}
+                  Total Konsumsi Air Hari Ini
                 </span>
                 <span className="text-xs font-extrabold text-blue-800">
                   {waterCalc.consumption.toLocaleString('id-ID')} m³
                 </span>
+                {waterCalc.delta != null && (
+                  <span className={`text-[10px] font-bold ${waterCalc.delta > 0 ? 'text-blue-900' : waterCalc.delta < 0 ? 'text-green-700' : 'text-gray-500'}`}>
+                    {waterCalc.delta > 0
+                      ? `▲ +${waterCalc.delta.toLocaleString('id-ID')} m³ vs kemarin`
+                      : waterCalc.delta < 0
+                      ? `▼ ${waterCalc.delta.toLocaleString('id-ID')} m³ vs kemarin`
+                      : 'Sama'}
+                  </span>
+                )}
               </div>
               <div className="text-right">
                 <span className="text-[10px] font-bold text-blue-900 uppercase tracking-wider">Taksiran Biaya</span>
@@ -463,12 +463,6 @@ export default function InputMeterPage() {
                   {formatRupiah(waterCalc.cost)}
                 </div>
               </div>
-            </div>
-          )}
-
-          {waterCalc && waterCalc.isLower && (
-            <div className="mt-2 p-2.5 rounded-xl bg-red-50 border border-red-200 text-xs text-red-600 font-medium">
-              ⚠️ Angka meter baru lebih kecil dari meter kemarin ({prevReadings.water} m³).
             </div>
           )}
         </div>
@@ -483,7 +477,7 @@ export default function InputMeterPage() {
                 </svg>
               </div>
               <div>
-                <div className="text-sm font-bold text-gray-900">Meter Gas</div>
+                <div className="text-sm font-bold text-gray-900">Total Pemakaian Gas</div>
                 <div className="text-[10px] text-gray-400">Tarif: Rp 15.000 / m³</div>
               </div>
             </div>
@@ -501,18 +495,18 @@ export default function InputMeterPage() {
               step="any"
               value={gas}
               onChange={(e) => setGas(e.target.value)}
-              placeholder={prevReadings.gas != null ? `Contoh: ${(prevReadings.gas + 5).toFixed(1)}` : 'Contoh: 892.0'}
+              placeholder={prevReadings.gas != null ? `Kemarin: ${prevReadings.gas.toLocaleString('id-ID')}` : 'Contoh: 5.0'}
               className="w-full h-12 bg-gray-50 border border-gray-200 rounded-xl px-4 text-base font-bold text-gray-900 placeholder-gray-300 focus:outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-100 transition-all"
             />
             <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs font-bold text-gray-400">m³</span>
           </div>
 
           {/* AUTOMATIC RUPIAH PREVIEW FIELD */}
-          {gasCalc && !gasCalc.isLower && (
+          {gasCalc && (
             <div className="mt-2.5 p-3 rounded-xl bg-teal-50/80 border border-teal-200/80 flex items-center justify-between animate-fadeIn">
               <div className="flex flex-col">
                 <span className="text-[10px] font-bold text-teal-900 uppercase tracking-wider">
-                  {gasCalc.isDelta ? 'Konsumsi Bersih' : 'Jumlah Konsumsi'}
+                  Total Konsumsi Gas Hari Ini
                 </span>
                 <span className="text-xs font-extrabold text-teal-800">
                   {gasCalc.consumption.toLocaleString('id-ID')} m³
@@ -524,12 +518,6 @@ export default function InputMeterPage() {
                   {formatRupiah(gasCalc.cost)}
                 </div>
               </div>
-            </div>
-          )}
-
-          {gasCalc && gasCalc.isLower && (
-            <div className="mt-2 p-2.5 rounded-xl bg-red-50 border border-red-200 text-xs text-red-600 font-medium">
-              ⚠️ Angka meter baru lebih kecil dari meter kemarin ({prevReadings.gas} m³).
             </div>
           )}
         </div>

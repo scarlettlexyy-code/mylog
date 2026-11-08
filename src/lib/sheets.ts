@@ -230,6 +230,20 @@ let memoryTariffs: Record<string, TariffRate> = {
 
 let memoryBudgets: MonthlyBudget[] = [
   {
+    id: 'budget-2026-11',
+    month: '2026-11',
+    mode: 'sum_categories',
+    electricityBudget: 15000000,
+    waterBudget: 4500000,
+    gasBudget: 3500000,
+    fuelBudget: 7000000,
+    opexBudget: 20000000,
+    totalBudget: 50000000,
+    isConfigured: true,
+    updatedAt: '2026-11-01T08:00:00+08:00',
+    updatedBy: 'Supervisor Operasional',
+  },
+  {
     id: 'budget-2026-10',
     month: '2026-10',
     mode: 'sum_categories',
