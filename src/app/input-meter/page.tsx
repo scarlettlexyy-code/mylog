@@ -39,7 +39,39 @@ export default function InputMeterPage() {
   // Fetch previous readings and any existing data when date changes
   useEffect(() => {
     let active = true;
-    setLoadingDate(true);
+
+    // Fast client-side cache restoration for instant tab switching
+    try {
+      const cached = sessionStorage.getItem(`mylog_input_cache_${date}`);
+      if (cached) {
+        const { readingData, fuelData, opexData } = JSON.parse(cached);
+        if (readingData?.previous) {
+          setPrevReadings({
+            electricity: readingData.previous.electricityMeter,
+            water: readingData.previous.waterMeter,
+            gas: readingData.previous.gasMeter,
+          });
+        }
+        if (readingData?.existing) {
+          setElectricity(readingData.existing.electricityMeter != null ? String(readingData.existing.electricityMeter) : '');
+          setWater(readingData.existing.waterMeter != null ? String(readingData.existing.waterMeter) : '');
+          setGas(readingData.existing.gasMeter != null ? String(readingData.existing.gasMeter) : '');
+        }
+        if (fuelData?.fuels) {
+          const foundFuel = fuelData.fuels.find((f: any) => f.date === date);
+          if (foundFuel) {
+            setSolar(foundFuel.solarLiters != null ? String(foundFuel.solarLiters) : '');
+            setGenset(foundFuel.gensetStatus || 'Running Test Normal');
+          }
+        }
+        if (opexData?.opex) {
+          const foundOpex = opexData.opex.find((o: any) => o.date === date);
+          if (foundOpex && foundOpex.totalAmount != null) {
+            setOpexDisplay(formatThousands(foundOpex.totalAmount));
+          }
+        }
+      }
+    } catch (e) {}
 
     Promise.all([
       fetch(`/api/readings?date=${date}`).then((r) => r.json()).catch(() => null),
@@ -47,6 +79,10 @@ export default function InputMeterPage() {
       fetch('/api/operating-expenses').then((r) => r.json()).catch(() => null),
     ]).then(([readingData, fuelData, opexData]) => {
       if (!active) return;
+
+      try {
+        sessionStorage.setItem(`mylog_input_cache_${date}`, JSON.stringify({ readingData, fuelData, opexData }));
+      } catch (e) {}
 
       // 1. Previous readings
       if (readingData?.previous) {

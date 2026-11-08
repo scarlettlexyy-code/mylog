@@ -73,18 +73,34 @@ const PerformanceRow = ({
 
 export default function LaporanPage() {
   const [quarter, setQuarter] = useState(getCurrentQuarter());
-  const [data, setData] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
+  const [data, setData] = useState<any>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const cached = sessionStorage.getItem('mylog_laporan_cache');
+        return cached ? JSON.parse(cached) : null;
+      } catch (e) {
+        return null;
+      }
+    }
+    return null;
+  });
+  const [loading, setLoading] = useState(!data);
   const quarters = getQuarters();
   const qInfo = quarters.find((q) => q.value === quarter);
 
   useEffect(() => {
     if (!qInfo) return;
-    setLoading(true);
-    // Fetch dashboard data for the period
+    if (!data) setLoading(true);
+
     fetch(`/api/dashboard?date=${qInfo.startMonth}-01`)
       .then((r) => r.json())
-      .then((j) => { setData(j); setLoading(false); })
+      .then((j) => {
+        setData(j);
+        setLoading(false);
+        try {
+          sessionStorage.setItem('mylog_laporan_cache', JSON.stringify(j));
+        } catch (e) {}
+      })
       .catch(() => setLoading(false));
   }, [quarter]);
 

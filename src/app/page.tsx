@@ -103,8 +103,23 @@ const CategoryBar = ({
 };
 
 export default function DashboardPage() {
-  const [data, setData] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
+  const [data, setData] = useState<any>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const cached = sessionStorage.getItem('mylog_dashboard_cache');
+        return cached ? JSON.parse(cached) : null;
+      } catch (e) {
+        return null;
+      }
+    }
+    return null;
+  });
+  const [loading, setLoading] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      return !sessionStorage.getItem('mylog_dashboard_cache');
+    }
+    return true;
+  });
 
   useEffect(() => {
     const today = new Date().toISOString().split('T')[0];
@@ -113,6 +128,9 @@ export default function DashboardPage() {
       .then((j) => {
         setData(j);
         setLoading(false);
+        try {
+          sessionStorage.setItem('mylog_dashboard_cache', JSON.stringify(j));
+        } catch (e) {}
       })
       .catch((err) => {
         console.error('Error loading dashboard:', err);

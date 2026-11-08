@@ -53,15 +53,32 @@ function formatDateTime(ts: string) {
 }
 
 export default function AuditPage() {
-  const [logs, setLogs] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [logs, setLogs] = useState<any[]>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const cached = sessionStorage.getItem('mylog_audit_cache');
+        return cached ? JSON.parse(cached) : [];
+      } catch (e) {
+        return [];
+      }
+    }
+    return [];
+  });
+  const [loading, setLoading] = useState(logs.length === 0);
   const [activeFilter, setActiveFilter] = useState('All');
   const [search, setSearch] = useState('');
 
   useEffect(() => {
     fetch('/api/audit')
       .then((r) => r.json())
-      .then((j) => { setLogs(j.logs || []); setLoading(false); })
+      .then((j) => {
+        const l = j.logs || [];
+        setLogs(l);
+        setLoading(false);
+        try {
+          sessionStorage.setItem('mylog_audit_cache', JSON.stringify(l));
+        } catch (e) {}
+      })
       .catch(() => setLoading(false));
   }, []);
 

@@ -91,13 +91,13 @@ export default function AnggaranPage() {
   // Fetch budget and dashboard actuals for the selected month
   useEffect(() => {
     let active = true;
-    setLoading(true);
 
     // 1. Check local storage first for zero delay & instant persistence
+    let userHasCustomBudget = false;
     try {
-      const cached = localStorage.getItem(`mylog_budget_${month}`);
-      if (cached) {
-        const parsed = JSON.parse(cached);
+      const savedUser = localStorage.getItem(`mylog_user_budget_${month}`) || localStorage.getItem(`mylog_budget_${month}`);
+      if (savedUser) {
+        const parsed = JSON.parse(savedUser);
         setBudget(parsed);
         setElecB(formatThousands(parsed.electricityBudget || ''));
         setWaterB(formatThousands(parsed.waterBudget || ''));
@@ -107,9 +107,13 @@ export default function AnggaranPage() {
         setMode(parsed.mode || 'sum_categories');
         setHasSavedBudget(true);
         setIsEditing(false);
+        userHasCustomBudget = true;
       }
-    } catch (e) {
-      // ignore localstorage errors
+    } catch (e) {}
+
+    // Only show spinner if we have no local cache at all
+    if (!userHasCustomBudget) {
+      setLoading(true);
     }
 
     Promise.all([
@@ -118,31 +122,69 @@ export default function AnggaranPage() {
     ]).then(([bData, dData]) => {
       if (!active) return;
 
-      if (bData?.budget && bData.budget.isConfigured) {
-        setBudget(bData.budget);
-        setElecB(formatThousands(bData.budget.electricityBudget || ''));
-        setWaterB(formatThousands(bData.budget.waterBudget || ''));
-        setGasB(formatThousands(bData.budget.gasBudget || ''));
-        setFuelB(formatThousands(bData.budget.fuelBudget || ''));
-        setOpexB(formatThousands(bData.budget.opexBudget || ''));
-        setMode(bData.budget.mode || 'sum_categories');
-        setHasSavedBudget(true);
-        setIsEditing(false);
+      const serverBudget = bData?.budget;
+      if (serverBudget && serverBudget.isConfigured) {
+        let shouldUseServer = true;
         try {
-          localStorage.setItem(`mylog_budget_${month}`, JSON.stringify(bData.budget));
+          const localStr = localStorage.getItem(`mylog_user_budget_${month}`);
+          if (localStr) {
+            const localObj = JSON.parse(localStr);
+            const localTime = new Date(localObj.updatedAt || 0).getTime();
+            const serverTime = new Date(serverBudget.updatedAt || 0).getTime();
+            if (localTime > serverTime) {
+              // Local user edit is newer! Sync local to server in background, do NOT overwrite!
+              shouldUseServer = false;
+              fetch('/api/budgets', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(localObj),
+              }).catch(() => {});
+            }
+          }
         } catch (e) {}
+
+        if (shouldUseServer) {
+          setBudget(serverBudget);
+          setElecB(formatThousands(serverBudget.electricityBudget || ''));
+          setWaterB(formatThousands(serverBudget.waterBudget || ''));
+          setGasB(formatThousands(serverBudget.gasBudget || ''));
+          setFuelB(formatThousands(serverBudget.fuelBudget || ''));
+          setOpexB(formatThousands(serverBudget.opexBudget || ''));
+          setMode(serverBudget.mode || 'sum_categories');
+          setHasSavedBudget(true);
+          setIsEditing(false);
+          try {
+            localStorage.setItem(`mylog_user_budget_${month}`, JSON.stringify(serverBudget));
+            localStorage.setItem(`mylog_budget_${month}`, JSON.stringify(serverBudget));
+          } catch (e) {}
+        }
       } else {
-        // If not found in server, check if we already have local cache
-        const cached = localStorage.getItem(`mylog_budget_${month}`);
-        if (!cached) {
-          setBudget(null);
-          setElecB('');
-          setWaterB('');
-          setGasB('');
-          setFuelB('');
-          setOpexB('');
-          setHasSavedBudget(false);
-          setIsEditing(true); // ready for first-time input
+        // Server has no configured budget
+        // If we have a local user budget, sync it to server!
+        try {
+          const localStr = localStorage.getItem(`mylog_user_budget_${month}`);
+          if (localStr) {
+            const localObj = JSON.parse(localStr);
+            fetch('/api/budgets', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(localObj),
+            }).catch(() => {});
+          } else {
+            setBudget(null);
+            setElecB('');
+            setWaterB('');
+            setGasB('');
+            setFuelB('');
+            setOpexB('');
+            setHasSavedBudget(false);
+            setIsEditing(true);
+          }
+        } catch (e) {
+          if (!userHasCustomBudget) {
+            setHasSavedBudget(false);
+            setIsEditing(true);
+          }
         }
       }
 
@@ -177,11 +219,13 @@ export default function AnggaranPage() {
         opexBudget: parseThousands(opexB),
         totalBudget,
         isConfigured: true,
+        updatedAt: new Date().toISOString(),
         userEmail: 'supervisor@agranusavilla.com',
       };
 
       // 1. Immediately store to localStorage for permanent client survival
       try {
+        localStorage.setItem(`mylog_user_budget_${month}`, JSON.stringify(payload));
         localStorage.setItem(`mylog_budget_${month}`, JSON.stringify(payload));
       } catch (e) {}
 
