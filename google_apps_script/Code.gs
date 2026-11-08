@@ -231,6 +231,18 @@ function doPost(e) {
           1
         ]);
       }
+
+      logAudit(ss, {
+        action: existingRow > 0 ? 'UPDATE' : 'CREATE',
+        dataType: 'fuel',
+        recordId: rowId,
+        targetDate: body.date,
+        previousValue: existingRow > 0 ? 'Pembaruan Data Fuel' : 'Data Baru',
+        newValue: 'Solar: ' + solarLiters + ' L (' + (body.gensetStatus || 'Normal') + ')',
+        reason: body.reason || 'Input rutin fuel solar',
+        userEmail: 'supervisor@agranusavilla.com'
+      });
+
       return sendJsonResponse({ success: true, message: 'Fuel solar tersimpan di Google Sheets' });
     }
 
@@ -256,6 +268,18 @@ function doPost(e) {
           1
         ]);
       }
+
+      logAudit(ss, {
+        action: existingRow > 0 ? 'UPDATE' : 'CREATE',
+        dataType: 'opex',
+        recordId: rowId,
+        targetDate: body.date,
+        previousValue: existingRow > 0 ? 'Pembaruan Data Opex' : 'Data Baru',
+        newValue: 'Rp ' + Number(opexVal).toLocaleString('id-ID'),
+        reason: body.reason || 'Input kas harian kasir operasional',
+        userEmail: 'supervisor@agranusavilla.com'
+      });
+
       return sendJsonResponse({ success: true, message: 'Opex kasir tersimpan di Google Sheets' });
     }
 
@@ -292,6 +316,18 @@ function doPost(e) {
       } else {
         sheet.appendRow(rowValues);
       }
+
+      logAudit(ss, {
+        action: existingRow > 0 ? 'UPDATE' : 'CREATE',
+        dataType: 'budget',
+        recordId: rowId,
+        targetDate: body.month,
+        previousValue: existingRow > 0 ? 'Pembaruan Anggaran' : 'Anggaran Baru',
+        newValue: 'Total: Rp ' + Number(body.totalBudget || 0).toLocaleString('id-ID'),
+        reason: 'Penetapan pagu anggaran bulan ' + body.month,
+        userEmail: 'supervisor@agranusavilla.com'
+      });
+
       return sendJsonResponse({ success: true, message: 'Anggaran bulanan tersimpan di Google Sheets' });
     }
 
@@ -337,17 +373,22 @@ function getSheetDataAsObjects(sheet) {
   if (lastRow <= 1 || lastCol === 0) return [];
 
   const rows = sheet.getRange(1, 1, lastRow, lastCol).getValues();
-  const headers = rows[0];
+  const headers = rows[0].map(function(h) { return String(h).trim(); });
   const results = [];
 
   for (let i = 1; i < rows.length; i++) {
     const row = rows[i];
+    // Abaikan baris kosong (anti ghost row)
+    const hasVal = row.some(function(c) { return c !== '' && c !== null && c !== undefined; });
+    if (!hasVal) continue;
+
     const obj = {};
     for (let j = 0; j < headers.length; j++) {
       let val = row[j];
       // Jika Google Sheets mengubah cell jadi Date, ubah kembali jadi string tanggal lokal
       if (val instanceof Date) {
-        val = Utilities.formatDate(val, TZ, headers[j] === 'date' ? 'yyyy-MM-dd' : "yyyy-MM-dd'T'HH:mm:ss");
+        const isDateOnly = headers[j] === 'date' || headers[j] === 'targetDate' || headers[j] === 'resetDate';
+        val = Utilities.formatDate(val, TZ, isDateOnly ? 'yyyy-MM-dd' : "yyyy-MM-dd'T'HH:mm:ss");
       }
       obj[headers[j]] = val;
     }

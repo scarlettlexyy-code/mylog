@@ -580,13 +580,67 @@ export async function recordAuditLog(
 }
 
 export async function getAuditLogs(): Promise<AuditLogEntry[]> {
+  let rawLogs: any[] = [];
   if (process.env.GOOGLE_APPS_SCRIPT_URL) {
     const res = await callAppsScript('getAudit');
     if (res?.success && Array.isArray(res.logs)) {
-      return res.logs;
+      rawLogs = res.logs;
     }
   }
-  return memoryAuditLogs;
+
+  if (rawLogs.length === 0) {
+    rawLogs = memoryAuditLogs;
+  }
+
+  return rawLogs
+    .filter((r) => r && typeof r === 'object')
+    .map((r, idx) => {
+      // Find key case-insensitively
+      const getKey = (name: string) => {
+        const lower = name.toLowerCase();
+        for (const k of Object.keys(r)) {
+          if (k.toLowerCase() === lower) return r[k];
+        }
+        return undefined;
+      };
+
+      const id = getKey('id') || `aud-${idx}`;
+      let timestamp = getKey('timestamp') || getKey('waktu') || getKey('recordedAt') || '';
+      if (timestamp instanceof Date) timestamp = timestamp.toISOString();
+
+      const rawAction = String(getKey('action') || getKey('aksi') || 'UPDATE').toUpperCase();
+      const action = ['CREATE', 'UPDATE', 'SOFT_DELETE', 'RESTORE', 'CYCLE_RESET'].includes(rawAction)
+        ? rawAction
+        : 'UPDATE';
+
+      const dataType = String(getKey('dataType') || getKey('datatype') || getKey('type') || 'meter').toLowerCase();
+      const recordId = String(getKey('recordId') || getKey('record_id') || '');
+
+      let targetDate = getKey('targetDate') || getKey('target_date') || getKey('date') || getKey('tanggal') || '';
+      if (typeof targetDate === 'string' && targetDate.includes('T')) {
+        targetDate = targetDate.split('T')[0];
+      }
+
+      const prev = getKey('previousValue') !== undefined ? getKey('previousValue') : getKey('previous_value');
+      const next = getKey('newValue') !== undefined ? getKey('newValue') : getKey('new_value');
+      const reason = getKey('reason') || getKey('alasan') || getKey('keterangan') || '';
+      const userEmail = getKey('userEmail') || getKey('user_email') || getKey('user') || 'supervisor@agranusavilla.com';
+
+      return {
+        id: String(id),
+        timestamp: String(timestamp || ''),
+        action: action as any,
+        dataType: dataType as any,
+        recordId: String(recordId || ''),
+        targetDate: String(targetDate || ''),
+        previousValue: typeof prev === 'object' && prev !== null ? JSON.stringify(prev) : String(prev ?? ''),
+        newValue: typeof next === 'object' && next !== null ? JSON.stringify(next) : String(next ?? ''),
+        reason: String(reason || ''),
+        userEmail: String(userEmail || ''),
+      };
+    })
+    // Filter out completely empty ghost rows
+    .filter((l) => l.action && (l.recordId || l.targetDate || l.newValue || l.previousValue));
 }
 
 export async function recordMeterCycle(
