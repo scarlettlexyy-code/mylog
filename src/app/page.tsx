@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import Link from 'next/link';
 import { Header } from '@/components/Header';
 import { BottomNav } from '@/components/BottomNav';
@@ -20,6 +20,18 @@ function getTodayFormatted() {
     month: 'long',
     year: 'numeric',
   });
+}
+
+function getTodayWita() {
+  try {
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Makassar' }).format(new Date());
+  } catch {
+    return new Date().toISOString().split('T')[0];
+  }
+}
+
+function getCurrentMonthWita() {
+  return getTodayWita().substring(0, 7);
 }
 
 const KpiCard = ({
@@ -83,18 +95,20 @@ const CategoryBar = ({
   color: string;
 }) => {
   const pct = budget > 0 ? Math.min((actual / budget) * 100, 100) : 0;
-  const over = pct >= 85;
+  const isOver = pct >= 90;
+  const isNear = pct >= 75 && pct < 90;
+
   return (
     <div className="flex flex-col gap-1.5">
       <div className="flex items-center justify-between">
         <span className="text-xs font-bold text-gray-700">{label}</span>
-        <span className={`text-xs font-black ${over ? 'text-red-500' : 'text-gray-600'}`}>
+        <span className={`text-xs font-black ${isOver ? 'text-rose-600 font-bold' : isNear ? 'text-amber-600' : 'text-gray-700'}`}>
           {formatRupiah(actual)} / {formatRupiah(budget)} ({Math.round(pct)}%)
         </span>
       </div>
       <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
         <div
-          className={`h-full rounded-full transition-all duration-500 ${over ? 'bg-red-500' : color}`}
+          className={`h-full rounded-full transition-all duration-500 ${isOver ? 'bg-rose-500' : isNear ? 'bg-amber-500' : color}`}
           style={{ width: `${pct}%` }}
         />
       </div>
@@ -103,6 +117,8 @@ const CategoryBar = ({
 };
 
 export default function DashboardPage() {
+  const currentMonth = getCurrentMonthWita();
+
   const [data, setData] = useState<any>(() => {
     if (typeof window !== 'undefined') {
       try {
@@ -114,6 +130,7 @@ export default function DashboardPage() {
     }
     return null;
   });
+
   const [loading, setLoading] = useState<boolean>(() => {
     if (typeof window !== 'undefined') {
       return !sessionStorage.getItem('mylog_dashboard_cache');
@@ -121,8 +138,26 @@ export default function DashboardPage() {
     return true;
   });
 
+  // Local storage authoritative budget (synced from Form Anggaran)
+  const [localBudget, setLocalBudget] = useState<any>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem(`mylog_user_budget_${currentMonth}`) || localStorage.getItem(`mylog_budget_${currentMonth}`);
+        return saved ? JSON.parse(saved) : null;
+      } catch (e) {
+        return null;
+      }
+    }
+    return null;
+  });
+
+  // Selected date expense popup modal state
+  const [selectedExpenseDate, setSelectedExpenseDate] = useState<any>(null);
+  const [pickerDate, setPickerDate] = useState(getTodayWita());
+  const [pickerLoading, setPickerLoading] = useState(false);
+
   useEffect(() => {
-    const today = new Date().toISOString().split('T')[0];
+    const today = getTodayWita();
     fetch(`/api/dashboard?date=${today}`)
       .then((r) => r.json())
       .then((j) => {
@@ -136,30 +171,107 @@ export default function DashboardPage() {
         console.error('Error loading dashboard:', err);
         setLoading(false);
       });
-  }, []);
+
+    // Check local storage for user budget
+    try {
+      const saved = localStorage.getItem(`mylog_user_budget_${currentMonth}`) || localStorage.getItem(`mylog_budget_${currentMonth}`);
+      if (saved) {
+        setLocalBudget(JSON.parse(saved));
+      }
+    } catch (e) {}
+  }, [currentMonth]);
 
   const summary = data?.currentPeriodSummary;
   const todayData = data?.today;
-  const budget = data?.budget;
+  const serverBudget = data?.budget;
 
+  // Actual MTD consumptions
   const totalElec = summary?.totalElectricityConsumption ?? 0;
   const totalWater = summary?.totalWaterConsumption ?? 0;
   const totalGas = summary?.totalGasConsumption ?? 0;
   const totalFuel = summary?.totalFuel ?? 0;
   const totalOpex = summary?.totalOpex ?? 0;
 
+  // Actual MTD costs (Total Expenses MTD)
   const costElec = summary?.totalElectricityCost ?? 0;
   const costWater = summary?.totalWaterCost ?? 0;
   const costGas = summary?.totalGasCost ?? 0;
   const costFuel = summary?.totalFuelCost ?? 0;
+  const totalExpenses = (costElec + costWater + costGas + costFuel + totalOpex) || (summary?.grandTotalCost ?? 0);
 
-  const elecBudget = budget?.categories?.electricity?.budget ?? 15000000;
-  const waterBudget = budget?.categories?.water?.budget ?? 4500000;
-  const gasBudget = budget?.categories?.gas?.budget ?? 3500000;
-  const fuelBudget = budget?.categories?.fuel?.budget ?? 7000000;
-  const opexBudget = budget?.categories?.opex?.budget ?? 20000000;
+  // Budgets - Prioritize Local User Budget from Form Anggaran, then Server Budget, default to 0 (no hardcoded fake values)
+  const elecBudget = localBudget?.electricityBudget != null 
+    ? Number(localBudget.electricityBudget) 
+    : (serverBudget?.categories?.electricity?.budget ?? 0);
 
-  const recentReadings: any[] = data?.recentReadings ?? [];
+  const waterBudget = localBudget?.waterBudget != null 
+    ? Number(localBudget.waterBudget) 
+    : (serverBudget?.categories?.water?.budget ?? 0);
+
+  const gasBudget = localBudget?.gasBudget != null 
+    ? Number(localBudget.gasBudget) 
+    : (serverBudget?.categories?.gas?.budget ?? 0);
+
+  const fuelBudget = localBudget?.fuelBudget != null 
+    ? Number(localBudget.fuelBudget) 
+    : (serverBudget?.categories?.fuel?.budget ?? 0);
+
+  const opexBudget = localBudget?.opexBudget != null 
+    ? Number(localBudget.opexBudget) 
+    : (serverBudget?.categories?.opex?.budget ?? 0);
+
+  const totalBudget = localBudget?.totalBudget != null
+    ? Number(localBudget.totalBudget)
+    : (serverBudget?.totalBudget ?? (elecBudget + waterBudget + gasBudget + fuelBudget + opexBudget));
+
+  // Sisa Anggaran (Remaining Net Budget) & Percentage
+  const remainingBudget = totalBudget - totalExpenses;
+  const spentPct = totalBudget > 0 ? (totalExpenses / totalBudget) * 100 : 0;
+
+  // Warning Signal Logic
+  const isBudgetConfigured = totalBudget > 0;
+  const isOverBudget = isBudgetConfigured && spentPct >= 90;
+  const isNearBudget = isBudgetConfigured && spentPct >= 75 && spentPct < 90;
+
+  // Recent daily expenses list (enhanced)
+  const recentDaily: any[] = data?.recentDailyExpenses ?? [];
+
+  // Handler to fetch any specific date picked by user
+  const handleInspectDate = (targetDateStr: string) => {
+    // 1. Look in existing recentDaily list first
+    const found = recentDaily.find((item) => item.date === targetDateStr);
+    if (found) {
+      setSelectedExpenseDate(found);
+      return;
+    }
+
+    // 2. Otherwise fetch from API
+    setPickerLoading(true);
+    fetch(`/api/dashboard?date=${targetDateStr}`)
+      .then((r) => r.json())
+      .then((j) => {
+        const t = j?.today;
+        if (t) {
+          setSelectedExpenseDate({
+            date: targetDateStr,
+            electricityConsumption: t.electricity?.consumption ?? 0,
+            electricityCost: t.electricity?.cost ?? 0,
+            waterConsumption: t.water?.consumption ?? 0,
+            waterCost: t.water?.cost ?? 0,
+            gasConsumption: t.gas?.consumption ?? 0,
+            gasCost: t.gas?.cost ?? 0,
+            fuelLiters: t.fuel?.liters ?? 0,
+            fuelCost: t.fuel?.cost ?? 0,
+            opexAmount: t.opex?.totalAmount ?? 0,
+            energySubtotal: t.energySubtotal ?? 0,
+            grandTotal: t.grandTotal ?? 0,
+            gensetStatus: t.fuel?.gensetStatus,
+          });
+        }
+      })
+      .catch((e) => console.error(e))
+      .finally(() => setPickerLoading(false));
+  };
 
   return (
     <div className="bg-gray-50 min-h-screen pb-28">
@@ -191,35 +303,109 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* DAILY ENERGY & EXPENSE HERO CARD */}
-        <div className="bg-gradient-to-r from-blue-700 via-indigo-700 to-blue-800 rounded-2xl p-4 text-white shadow-lg shadow-blue-200/50 mb-4">
-          <div className="flex items-center justify-between mb-1">
-            <span className="text-[11px] font-bold text-blue-200 uppercase tracking-wider">
-              Total Beban Hari Ini (Daily Cost)
+        {/* HERO CARD: SISA SALDO PAGU ANGGARAN & TOTAL EXPENSES */}
+        <div
+          className={`rounded-2xl p-4 text-white shadow-xl transition-all duration-500 mb-4 ${
+            !isBudgetConfigured
+              ? 'bg-gradient-to-br from-slate-800 via-blue-900 to-indigo-950 shadow-blue-950/20'
+              : isOverBudget
+              ? 'bg-gradient-to-br from-slate-900 via-rose-950 to-red-950 border border-rose-500/40 shadow-rose-950/30'
+              : isNearBudget
+              ? 'bg-gradient-to-br from-slate-900 via-amber-950 to-orange-950 border border-amber-500/40 shadow-amber-950/30'
+              : 'bg-gradient-to-br from-slate-900 via-indigo-950 to-blue-950 border border-blue-500/30 shadow-indigo-950/30'
+          }`}
+        >
+          {/* Header Row: Title & Warning Signal */}
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-blue-200">
+              Sisa Saldo Anggaran Bulan Ini
             </span>
-            {todayData?.grandTotalDelta?.percentFormatted && (
-              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                todayData.grandTotalDelta.isPositive ? 'bg-red-400/20 text-red-200' : 'bg-green-400/20 text-green-200'
-              }`}>
-                {todayData.grandTotalDelta.percentFormatted} vs kemarin
-              </span>
+
+            {/* Sinyal Peringatan Status Anggaran */}
+            {isBudgetConfigured ? (
+              isOverBudget ? (
+                <div className="flex items-center gap-1.5 bg-rose-500/30 border border-rose-400/50 px-2.5 py-1 rounded-full animate-pulse">
+                  <span className="w-2 h-2 rounded-full bg-rose-400"></span>
+                  <span className="text-[10px] font-black text-rose-200 uppercase tracking-wide">
+                    Kritis! ({spentPct.toFixed(1)}%)
+                  </span>
+                </div>
+              ) : isNearBudget ? (
+                <div className="flex items-center gap-1.5 bg-amber-500/30 border border-amber-400/50 px-2.5 py-1 rounded-full">
+                  <span className="w-2 h-2 rounded-full bg-amber-400"></span>
+                  <span className="text-[10px] font-black text-amber-200 uppercase tracking-wide">
+                    Mendekati Pagu ({spentPct.toFixed(1)}%)
+                  </span>
+                </div>
+              ) : (
+                <div className="flex items-center gap-1.5 bg-emerald-500/20 border border-emerald-400/40 px-2.5 py-1 rounded-full">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+                  <span className="text-[10px] font-black text-emerald-200 uppercase tracking-wide">
+                    Aman ({spentPct.toFixed(1)}%)
+                  </span>
+                </div>
+              )
+            ) : (
+              <Link
+                href="/anggaran"
+                className="text-[10px] font-bold bg-blue-500/30 hover:bg-blue-500/50 text-blue-200 border border-blue-400/30 px-2.5 py-1 rounded-full transition-colors"
+              >
+                + Set Pagu Anggaran
+              </Link>
             )}
           </div>
-          <div className="text-3xl font-black text-white">
-            {formatRupiah(todayData?.grandTotal || 0)}
+
+          {/* Nilai Utama Sisa Anggaran */}
+          <div className="flex items-baseline gap-2">
+            <div className={`text-3xl font-black tracking-tight ${remainingBudget < 0 ? 'text-rose-300' : 'text-white'}`}>
+              {formatRupiah(remainingBudget)}
+            </div>
+            <span className="text-xs font-semibold text-gray-300">
+              {remainingBudget >= 0 ? 'tersisa' : 'defisit'}
+            </span>
           </div>
 
-          <div className="mt-3 pt-3 border-t border-white/10 grid grid-cols-2 gap-2 text-xs">
+          <div className="text-[11px] text-gray-300 mt-1">
+            Total Pagu: <strong className="text-white">{formatRupiah(totalBudget)}</strong> · Terpakai:{' '}
+            <strong className="text-white">{formatRupiah(totalExpenses)}</strong> ({Math.round(spentPct)}%)
+          </div>
+
+          {/* Progress Bar Persentase Terpakai */}
+          <div className="mt-3">
+            <div className="h-2 bg-white/10 rounded-full overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all duration-700 ${
+                  isOverBudget ? 'bg-rose-500' : isNearBudget ? 'bg-amber-400' : 'bg-emerald-400'
+                }`}
+                style={{ width: `${Math.min(spentPct, 100)}%` }}
+              />
+            </div>
+          </div>
+
+          {/* 3-Column Breakdown Footer */}
+          <div className="mt-3.5 pt-3 border-t border-white/10 grid grid-cols-3 gap-2 text-left">
             <div>
-              <span className="text-[10px] text-blue-200 block uppercase font-bold">Biaya Energi (Listrik/Air/Gas/Solar)</span>
-              <span className="font-extrabold text-white text-sm">
-                {formatRupiah(todayData?.energySubtotal || 0)}
+              <span className="text-[9px] text-gray-300 block uppercase font-bold tracking-wider">
+                Total Expenses (MTD)
+              </span>
+              <span className="font-extrabold text-white text-xs mt-0.5 block">
+                {formatRupiah(totalExpenses)}
               </span>
             </div>
             <div>
-              <span className="text-[10px] text-blue-200 block uppercase font-bold">Kasir Operasional (Opex)</span>
-              <span className="font-extrabold text-white text-sm">
-                {formatRupiah(todayData?.opex?.totalAmount || 0)}
+              <span className="text-[9px] text-gray-300 block uppercase font-bold tracking-wider">
+                Pagu Anggaran
+              </span>
+              <span className="font-extrabold text-white text-xs mt-0.5 block">
+                {formatRupiah(totalBudget)}
+              </span>
+            </div>
+            <div>
+              <span className="text-[9px] text-gray-300 block uppercase font-bold tracking-wider">
+                Beban Hari Ini
+              </span>
+              <span className="font-extrabold text-blue-200 text-xs mt-0.5 block">
+                {formatRupiah(todayData?.grandTotal || 0)}
               </span>
             </div>
           </div>
@@ -294,12 +480,12 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {/* Budget Utilization Progress */}
+        {/* Budget Utilization Progress (Synchronized with Form Anggaran) */}
         <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 mb-4">
           <div className="flex items-center justify-between mb-4">
             <div>
               <h3 className="text-sm font-black text-gray-900">Realisasi vs Pagu Anggaran</h3>
-              <p className="text-[10px] text-gray-400">Total Pengeluaran Bulan Berjalan (Rupiah)</p>
+              <p className="text-[10px] text-gray-400">Total Pengeluaran Bulan Berjalan (Tersinkron)</p>
             </div>
             <Link
               href="/anggaran"
@@ -311,32 +497,50 @@ export default function DashboardPage() {
           <div className="flex flex-col gap-3">
             <CategoryBar label="Listrik PLN" actual={costElec} budget={elecBudget} color="bg-yellow-500" />
             <CategoryBar label="Air Bersih" actual={costWater} budget={waterBudget} color="bg-blue-500" />
-            <CategoryBar label="Gas" actual={costGas} budget={gasBudget} color="bg-teal-500" />
+            <CategoryBar label="Gas Villa" actual={costGas} budget={gasBudget} color="bg-teal-500" />
             <CategoryBar label="Solar Genset" actual={costFuel} budget={fuelBudget} color="bg-orange-500" />
             <CategoryBar label="Kasir Operasional" actual={totalOpex} budget={opexBudget} color="bg-purple-500" />
           </div>
         </div>
 
-        {/* Recent Activity Log */}
+        {/* SECTION: DAILY EXPENSES (Interactive & Clickable) */}
         <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 mb-4">
           <div className="flex items-center justify-between mb-3">
             <div>
-              <h3 className="text-sm font-black text-gray-900">Catatan Meter Terbaru</h3>
-              <p className="text-[10px] text-gray-400">Riwayat sinkronisasi Google Sheets</p>
+              <h3 className="text-sm font-black text-gray-900">Daily Expenses</h3>
+              <p className="text-[10px] text-gray-400">Klik tanggal untuk cek rincian pengeluaran harian</p>
             </div>
             <Link href="/audit" className="text-xs font-bold text-blue-600 hover:underline">
-              Lihat Semua
+              Jejak Audit
             </Link>
           </div>
 
-          {recentReadings.length === 0 ? (
+          {/* Date Picker bar to inspect any date */}
+          <div className="flex items-center gap-2 mb-3 bg-gray-50 p-2 rounded-xl border border-gray-100">
+            <span className="text-[11px] font-bold text-gray-600 shrink-0">Cek Tanggal:</span>
+            <input
+              type="date"
+              value={pickerDate}
+              onChange={(e) => {
+                setPickerDate(e.target.value);
+                if (e.target.value) handleInspectDate(e.target.value);
+              }}
+              className="flex-1 bg-white border border-gray-200 rounded-lg px-2.5 py-1 text-xs font-bold text-gray-800 focus:outline-none focus:border-blue-500"
+            />
+            {pickerLoading && (
+              <span className="text-[10px] font-bold text-blue-600 animate-pulse">Loading...</span>
+            )}
+          </div>
+
+          {/* List of recent daily expenses */}
+          {recentDaily.length === 0 ? (
             <div className="py-8 text-center">
               <div className="w-12 h-12 bg-gray-50 rounded-2xl flex items-center justify-center mx-auto mb-2 text-gray-300">
                 <svg viewBox="0 0 24 24" fill="currentColor" className="w-6 h-6">
                   <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 3c1.93 0 3.5 1.57 3.5 3.5S13.93 13 12 13s-3.5-1.57-3.5-3.5S10.07 6 12 6zm7 13H5v-.23c0-.62.28-1.2.76-1.58C7.47 15.82 9.64 15 12 15s4.53.82 6.24 2.19c.48.38.76.97.76 1.58V19z" />
                 </svg>
               </div>
-              <p className="text-xs text-gray-400 font-bold">Belum ada catatan meter</p>
+              <p className="text-xs text-gray-400 font-bold">Belum ada catatan pengeluaran harian</p>
               <Link
                 href="/input-meter"
                 className="inline-flex items-center gap-1 mt-2 text-xs font-bold text-blue-600 bg-blue-50 px-3 py-1.5 rounded-full"
@@ -345,28 +549,119 @@ export default function DashboardPage() {
               </Link>
             </div>
           ) : (
-            <div className="divide-y divide-gray-50">
-              {recentReadings.slice(0, 5).map((r: any, i: number) => (
-                <div key={r.id || i} className="py-3 flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center text-xs font-bold">
-                      {r.date?.slice(8, 10)}
-                    </div>
-                    <div>
-                      <div className="text-xs font-bold text-gray-900">{r.date}</div>
-                      <div className="text-[10px] text-gray-400">
-                        Listrik: {r.electricityMeter ?? '—'} kWh • Air: {r.waterMeter ?? '—'} m³ • Gas: {r.gasMeter ?? '—'} m³
+            <div className="divide-y divide-gray-100">
+              {recentDaily.slice(0, 7).map((d: any, i: number) => {
+                const isSelected = selectedExpenseDate?.date === d.date;
+
+                return (
+                  <button
+                    key={d.date || i}
+                    onClick={() => setSelectedExpenseDate(d)}
+                    type="button"
+                    className={`w-full py-2.5 px-2 rounded-xl text-left flex items-center justify-between transition-colors ${
+                      isSelected ? 'bg-blue-50/80 border border-blue-200' : 'hover:bg-gray-50'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center text-xs font-black">
+                        {d.date?.slice(8, 10)}
+                      </div>
+                      <div>
+                        <div className="text-xs font-bold text-gray-900 flex items-center gap-1.5">
+                          <span>{d.date}</span>
+                          {d.date === getTodayWita() && (
+                            <span className="text-[9px] bg-green-100 text-green-700 font-extrabold px-1.5 py-0.2 rounded">
+                              Hari Ini
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[10px] text-gray-500 mt-0.5">
+                          Listrik: {formatDecimal(d.electricityConsumption, 1)} kWh · Air: {formatDecimal(d.waterConsumption, 1)} m³
+                        </div>
                       </div>
                     </div>
-                  </div>
-                  <span className="text-[10px] font-bold bg-green-50 text-green-700 px-2 py-0.5 rounded-md">
-                    Tersimpan
-                  </span>
-                </div>
-              ))}
+                    <div className="text-right">
+                      <div className="text-xs font-black text-gray-900">{formatRupiah(d.grandTotal || 0)}</div>
+                      <span className="text-[10px] text-blue-600 font-semibold hover:underline">
+                        Lihat Rincian →
+                      </span>
+                    </div>
+                  </button>
+                );
+              })}
             </div>
           )}
         </div>
+
+        {/* MODAL / POPUP: DETAIL DAILY EXPENSES PADA TANGGAL TERTENTU */}
+        {selectedExpenseDate && (
+          <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-white rounded-3xl max-w-sm w-full p-5 shadow-2xl border border-gray-100 animate-in fade-in zoom-in-95 duration-200">
+              <div className="flex items-center justify-between border-b border-gray-100 pb-3 mb-4">
+                <div>
+                  <span className="text-[10px] font-bold text-blue-600 uppercase tracking-wider">
+                    Rincian Daily Expenses
+                  </span>
+                  <h3 className="text-base font-black text-gray-900">{selectedExpenseDate.date}</h3>
+                </div>
+                <button
+                  onClick={() => setSelectedExpenseDate(null)}
+                  className="w-8 h-8 rounded-full bg-gray-100 text-gray-500 hover:bg-gray-200 flex items-center justify-center font-bold text-sm"
+                >
+                  ✕
+                </button>
+              </div>
+
+              {/* Rincian Komponen Biaya */}
+              <div className="space-y-2.5 mb-4 text-xs">
+                <div className="flex items-center justify-between py-1.5 border-b border-gray-50">
+                  <span className="text-gray-600 font-medium">⚡ Listrik PLN ({formatDecimal(selectedExpenseDate.electricityConsumption, 1)} kWh):</span>
+                  <span className="font-black text-gray-900">{formatRupiah(selectedExpenseDate.electricityCost || 0)}</span>
+                </div>
+                <div className="flex items-center justify-between py-1.5 border-b border-gray-50">
+                  <span className="text-gray-600 font-medium">💧 Air Bersih ({formatDecimal(selectedExpenseDate.waterConsumption, 1)} m³):</span>
+                  <span className="font-black text-gray-900">{formatRupiah(selectedExpenseDate.waterCost || 0)}</span>
+                </div>
+                <div className="flex items-center justify-between py-1.5 border-b border-gray-50">
+                  <span className="text-gray-600 font-medium">🔥 Gas Villa ({formatDecimal(selectedExpenseDate.gasConsumption, 1)} m³):</span>
+                  <span className="font-black text-gray-900">{formatRupiah(selectedExpenseDate.gasCost || 0)}</span>
+                </div>
+                <div className="flex items-center justify-between py-1.5 border-b border-gray-50">
+                  <span className="text-gray-600 font-medium">⛽ Solar Genset ({formatDecimal(selectedExpenseDate.fuelLiters, 0)} L):</span>
+                  <span className="font-black text-gray-900">{formatRupiah(selectedExpenseDate.fuelCost || 0)}</span>
+                </div>
+                <div className="flex items-center justify-between py-1.5 border-b border-gray-50">
+                  <span className="text-gray-600 font-medium">💵 Kasir Operasional (Opex):</span>
+                  <span className="font-black text-gray-900">{formatRupiah(selectedExpenseDate.opexAmount || 0)}</span>
+                </div>
+              </div>
+
+              {/* Grand Total Box */}
+              <div className="bg-blue-50/80 rounded-2xl p-3 border border-blue-100 flex items-center justify-between mb-4">
+                <span className="text-xs font-bold text-blue-900 uppercase">Total Daily Expenses:</span>
+                <span className="text-lg font-black text-blue-700">
+                  {formatRupiah(selectedExpenseDate.grandTotal || 0)}
+                </span>
+              </div>
+
+              {/* Actions */}
+              <div className="flex gap-2">
+                <Link
+                  href={`/input-meter`}
+                  className="flex-1 h-10 bg-blue-600 text-white rounded-xl text-xs font-bold flex items-center justify-center shadow-md shadow-blue-200 active:scale-95 transition-transform"
+                >
+                  Edit / Catat di Tanggal Ini
+                </Link>
+                <button
+                  onClick={() => setSelectedExpenseDate(null)}
+                  className="px-4 h-10 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl text-xs font-bold transition-colors"
+                >
+                  Tutup
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </main>
 
       <BottomNav />

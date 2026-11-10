@@ -175,8 +175,50 @@ export async function GET(req: NextRequest) {
     const mtdEnergyCost = mtdElecCost + mtdWaterCost + mtdGasCost + mtdFuelCost;
     const mtdTotalSpent = mtdEnergyCost + mtdOpexAmount;
 
-    const activeTotalBudget = budget?.totalBudget || 50000000;
+    const activeTotalBudget = budget?.isConfigured 
+      ? Number(budget.totalBudget) || 0 
+      : (Number(budget?.totalBudget) || 0);
     const budgetUtilization = calculateBudgetUtilization(mtdTotalSpent, activeTotalBudget);
+
+    // Build recent daily expenses across readings, fuels, and opex
+    const allDates = Array.from(new Set([
+      ...sortedReadings.map((r) => r.date),
+      ...sortedFuels.map((f) => f.date),
+      ...sortedOpex.map((o) => o.date),
+    ])).sort();
+
+    const recentDailyExpenses = allDates.slice(-14).reverse().map((d) => {
+      const r = sortedReadings.find((x) => x.date === d);
+      const f = sortedFuels.find((x) => x.date === d);
+      const o = sortedOpex.find((x) => x.date === d);
+
+      const eCons = r?.electricityMeter != null ? Number(r.electricityMeter) : 0;
+      const wCons = r?.waterMeter != null ? Number(r.waterMeter) : 0;
+      const gCons = r?.gasMeter != null ? Number(r.gasMeter) : 0;
+      const sLiters = f?.solarLiters != null ? Number(f.solarLiters) : 0;
+      const opAmt = o?.totalAmount != null ? Number(o.totalAmount) : 0;
+
+      const eCost = calculateEnergyCost(eCons, tariffs.electricity).totalCost;
+      const wCost = calculateEnergyCost(wCons, tariffs.water).totalCost;
+      const gCost = calculateEnergyCost(gCons, tariffs.gas).totalCost;
+      const sCost = calculateEnergyCost(sLiters, tariffs.fuel).totalCost;
+      const totalDaily = eCost + wCost + gCost + sCost + opAmt;
+
+      return {
+        date: d,
+        electricityConsumption: eCons,
+        electricityCost: eCost,
+        waterConsumption: wCons,
+        waterCost: wCost,
+        gasConsumption: gCons,
+        gasCost: gCost,
+        fuelLiters: sLiters,
+        fuelCost: sCost,
+        opexAmount: opAmt,
+        energySubtotal: eCost + wCost + gCost + sCost,
+        grandTotal: totalDaily,
+      };
+    });
 
     return NextResponse.json({
       targetDate,
@@ -249,43 +291,45 @@ export async function GET(req: NextRequest) {
       },
       budget: {
         month,
+        isConfigured: !!budget?.isConfigured,
         totalBudget: activeTotalBudget,
         spentMtd: mtdTotalSpent,
         remaining: Math.max(0, activeTotalBudget - mtdTotalSpent),
         utilization: budgetUtilization,
         categories: {
           electricity: {
-            budget: budget?.electricityBudget || 15000000,
+            budget: Number(budget?.electricityBudget) || 0,
             spent: mtdElecCost,
-            percent: (budget?.electricityBudget || 0) > 0 ? (mtdElecCost / budget!.electricityBudget) * 100 : 0,
-            status: mtdElecCost > (budget?.electricityBudget || 15000000) ? 'Bahaya' : 'Aman',
+            percent: (Number(budget?.electricityBudget) || 0) > 0 ? (mtdElecCost / Number(budget!.electricityBudget)) * 100 : 0,
+            status: mtdElecCost > (Number(budget?.electricityBudget) || 0) ? 'Bahaya' : 'Aman',
           },
           water: {
-            budget: budget?.waterBudget || 4500000,
+            budget: Number(budget?.waterBudget) || 0,
             spent: mtdWaterCost,
-            percent: (budget?.waterBudget || 0) > 0 ? (mtdWaterCost / budget!.waterBudget) * 100 : 0,
-            status: mtdWaterCost > (budget?.waterBudget || 4500000) ? 'Bahaya' : 'Aman',
+            percent: (Number(budget?.waterBudget) || 0) > 0 ? (mtdWaterCost / Number(budget!.waterBudget)) * 100 : 0,
+            status: mtdWaterCost > (Number(budget?.waterBudget) || 0) ? 'Bahaya' : 'Aman',
           },
           gas: {
-            budget: budget?.gasBudget || 3500000,
+            budget: Number(budget?.gasBudget) || 0,
             spent: mtdGasCost,
-            percent: (budget?.gasBudget || 0) > 0 ? (mtdGasCost / budget!.gasBudget) * 100 : 0,
-            status: mtdGasCost > (budget?.gasBudget || 3500000) ? 'Bahaya' : 'Aman',
+            percent: (Number(budget?.gasBudget) || 0) > 0 ? (mtdGasCost / Number(budget!.gasBudget)) * 100 : 0,
+            status: mtdGasCost > (Number(budget?.gasBudget) || 0) ? 'Bahaya' : 'Aman',
           },
           fuel: {
-            budget: budget?.fuelBudget || 7000000,
+            budget: Number(budget?.fuelBudget) || 0,
             spent: mtdFuelCost,
-            percent: (budget?.fuelBudget || 0) > 0 ? (mtdFuelCost / budget!.fuelBudget) * 100 : 0,
-            status: mtdFuelCost > (budget?.fuelBudget || 7000000) ? 'Bahaya' : 'Aman',
+            percent: (Number(budget?.fuelBudget) || 0) > 0 ? (mtdFuelCost / Number(budget!.fuelBudget)) * 100 : 0,
+            status: mtdFuelCost > (Number(budget?.fuelBudget) || 0) ? 'Bahaya' : 'Aman',
           },
           opex: {
-            budget: budget?.opexBudget || 20000000,
+            budget: Number(budget?.opexBudget) || 0,
             spent: mtdOpexAmount,
-            percent: (budget?.opexBudget || 0) > 0 ? (mtdOpexAmount / budget!.opexBudget) * 100 : 0,
-            status: mtdOpexAmount > (budget?.opexBudget || 20000000) ? 'Bahaya' : 'Aman',
+            percent: (Number(budget?.opexBudget) || 0) > 0 ? (mtdOpexAmount / Number(budget!.opexBudget)) * 100 : 0,
+            status: mtdOpexAmount > (Number(budget?.opexBudget) || 0) ? 'Bahaya' : 'Aman',
           },
         },
       },
+      recentDailyExpenses,
       recentReadings: sortedReadings.slice(-10).reverse(),
       alerts: {
         activeSpikes,
