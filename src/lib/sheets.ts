@@ -662,7 +662,7 @@ export async function getAuditLogs(): Promise<AuditLogEntry[]> {
         recordId: `opex-${o.date}`,
         targetDate: o.date,
         previousValue: o.version && o.version > 1 ? 'Pembaruan Kasir' : 'Data Baru',
-        newValue: `Total: ${formatRupiah(o.totalAmount || 0)}`,
+        newValue: `Total: Rp ${(o.totalAmount || 0).toLocaleString('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
         reason: 'Pencatatan kas operasional harian kasir',
         userEmail: o.recordedBy || 'supervisor@agranusavilla.com',
       });
