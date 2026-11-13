@@ -1,8 +1,10 @@
 'use client';
 
 import React, { useEffect, useState, useMemo } from 'react';
+import Link from 'next/link';
 import { Header } from '@/components/Header';
 import { BottomNav } from '@/components/BottomNav';
+import { formatRupiah, formatDecimal } from '@/lib/calculations';
 
 const filterTabs = ['All', 'Meter', 'Fuel', 'Expense', 'Budget', 'System'];
 
@@ -59,7 +61,6 @@ function getDataTypeIcon(dataType: string) {
       </svg>
     );
   }
-  // Default: Meter / System
   return (
     <svg viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5 text-gray-500">
       <path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z" />
@@ -137,8 +138,26 @@ export default function AuditPage() {
   });
   const [loading, setLoading] = useState(logs.length === 0);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [activeFilter, setActiveFilter] = useState('All');
   const [search, setSearch] = useState('');
+
+  // Update modal state
+  const [updateModalOpen, setUpdateModalOpen] = useState(false);
+  const [editingLog, setEditingLog] = useState<any>(null);
+  const [formDate, setFormDate] = useState('');
+  const [formElec, setFormElec] = useState('');
+  const [formWater, setFormWater] = useState('');
+  const [formGas, setFormGas] = useState('');
+  const [formFuel, setFormFuel] = useState('');
+  const [formOpex, setFormOpex] = useState('');
+  const [formReason, setFormReason] = useState('');
+  const [isUpdating, setIsUpdating] = useState(false);
+
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(null), 3500);
+  };
 
   const fetchLogs = (forceRefresh = false) => {
     if (forceRefresh) {
@@ -156,8 +175,16 @@ export default function AuditPage() {
         try {
           sessionStorage.setItem('mylog_audit_cache', JSON.stringify(l));
         } catch {}
+        if (forceRefresh) {
+          showToast('✓ Data Jejak Audit Berhasil Diperbarui dari Database!');
+        }
       })
-      .catch((err) => console.error('Error fetching audit logs:', err))
+      .catch((err) => {
+        console.error('Error fetching audit logs:', err);
+        if (forceRefresh) {
+          showToast('Gagal memperbarui data audit');
+        }
+      })
       .finally(() => {
         setLoading(false);
         setIsRefreshing(false);
@@ -227,6 +254,101 @@ export default function AuditPage() {
     }).length;
   }, [logs, todayWita]);
 
+  // Handle opening the update modal
+  const handleOpenUpdateModal = (log: any) => {
+    setEditingLog(log);
+    const date = log.targetDate ? log.targetDate.split('T')[0] : todayWita;
+    setFormDate(date);
+    setFormReason(log.reason || 'Koreksi data operasional');
+
+    // Parse existing values if available
+    let e = '';
+    let w = '';
+    let g = '';
+    let f = '';
+    let o = '';
+
+    if (log.newValue) {
+      const nStr = String(log.newValue);
+      if (nStr.startsWith('{') && nStr.endsWith('}')) {
+        try {
+          const parsed = JSON.parse(nStr);
+          if (parsed.listrik) e = String(parsed.listrik);
+          if (parsed.air) w = String(parsed.air);
+          if (parsed.gas) g = String(parsed.gas);
+        } catch {}
+      } else if (log.dataType === 'fuel') {
+        const match = nStr.match(/\d+(\.\d+)?/);
+        if (match) f = match[0];
+      } else if (log.dataType === 'opex') {
+        const clean = nStr.replace(/\D/g, '');
+        if (clean) o = clean;
+      }
+    }
+
+    setFormElec(e);
+    setFormWater(w);
+    setFormGas(g);
+    setFormFuel(f);
+    setFormOpex(o);
+    setUpdateModalOpen(true);
+  };
+
+  // Submit update
+  const handleSaveUpdate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!formDate) return;
+    setIsUpdating(true);
+
+    try {
+      const dt = editingLog?.dataType || 'meter';
+
+      if (dt === 'meter') {
+        await fetch('/api/readings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            date: formDate,
+            electricityMeter: formElec !== '' ? parseFloat(formElec) : null,
+            waterMeter: formWater !== '' ? parseFloat(formWater) : null,
+            gasMeter: formGas !== '' ? parseFloat(formGas) : null,
+            reason: formReason || 'Update data operasional dari Jejak Audit',
+          }),
+        });
+      } else if (dt === 'fuel') {
+        await fetch('/api/fuel', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            date: formDate,
+            solarLiters: parseFloat(formFuel) || 0,
+            gensetStatus: 'Running Test Normal',
+            reason: formReason || 'Update solar genset dari Jejak Audit',
+          }),
+        });
+      } else if (dt === 'opex') {
+        await fetch('/api/operating-expenses', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            date: formDate,
+            totalAmount: parseFloat(formOpex) || 0,
+            reason: formReason || 'Update kasir operasional dari Jejak Audit',
+          }),
+        });
+      }
+
+      setUpdateModalOpen(false);
+      showToast('✓ Data berhasil diupdate ke Google Sheets!');
+      fetchLogs(true);
+    } catch (err) {
+      console.error('Error updating record:', err);
+      showToast('Gagal menyimpan update data');
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
   const handleExportCsv = () => {
     if (logs.length === 0) return;
     const headers = ['ID', 'Waktu', 'Aksi', 'Tipe Data', 'Record ID', 'Tanggal Target', 'Nilai Sebelum', 'Nilai Sesudah', 'Alasan', 'User'];
@@ -254,7 +376,7 @@ export default function AuditPage() {
   };
 
   return (
-    <div className="bg-gray-50 min-h-screen pb-24">
+    <div className="bg-gray-50 min-h-screen pb-28">
       <Header
         badge="Audit Compliance Trail"
         badgeColor="bg-indigo-100 text-indigo-700"
@@ -264,18 +386,35 @@ export default function AuditPage() {
           <button
             onClick={() => fetchLogs(true)}
             disabled={isRefreshing || loading}
-            className="flex items-center gap-1.5 bg-green-50 hover:bg-green-100 border border-green-200 rounded-full px-2.5 py-1.5 transition-colors active:scale-95"
-            title="Sinkronkan ulang jejak audit dari Google Sheets"
+            className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-full px-3 py-1.5 transition-colors shadow-sm active:scale-95"
+            title="Update dan sinkronkan data jejak audit dari Google Sheets"
           >
-            <span className={`w-1.5 h-1.5 rounded-full bg-green-500 ${isRefreshing ? 'animate-ping' : 'animate-pulse'}`}></span>
-            <span className="text-[10px] font-bold text-green-700">
-              {isRefreshing ? 'Sinkron...' : 'Sinkron Aktif'}
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`}
+            >
+              <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67" />
+            </svg>
+            <span className="text-[11px] font-bold">
+              {isRefreshing ? 'Mengupdate...' : 'Update Data'}
             </span>
           </button>
         }
       />
 
-      <main className="max-w-md mx-auto px-4 pt-5">
+      {/* Floating Toast Notification */}
+      {toastMessage && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-emerald-600 text-white text-xs font-bold px-4 py-2.5 rounded-2xl shadow-xl flex items-center gap-2 animate-in fade-in slide-in-from-top-3">
+          <span>{toastMessage}</span>
+        </div>
+      )}
+
+      <main className="max-w-md mx-auto px-4 pt-4">
         {/* Stats Row */}
         <div className="grid grid-cols-3 gap-3 mb-4">
           <div className="bg-white rounded-2xl p-3 shadow-sm border border-gray-100 text-center">
@@ -284,9 +423,9 @@ export default function AuditPage() {
             <div className="text-[10px] text-blue-600 font-bold mt-0.5">+{todayLogsCount} Hari Ini</div>
           </div>
           <div className="bg-white rounded-2xl p-3 shadow-sm border border-gray-100 text-center">
-            <div className="text-xl font-black text-emerald-600">Aman</div>
+            <div className="text-xl font-black text-emerald-600">Aktif</div>
             <div className="text-[10px] text-gray-400 font-semibold">Integritas</div>
-            <div className="text-[10px] text-emerald-600 font-bold mt-0.5">Hash Verified</div>
+            <div className="text-[10px] text-emerald-600 font-bold mt-0.5">Terverifikasi</div>
           </div>
           <div className="bg-white rounded-2xl p-3 shadow-sm border border-gray-100 text-center">
             <div className="text-xl font-black text-blue-600">100%</div>
@@ -295,7 +434,7 @@ export default function AuditPage() {
           </div>
         </div>
 
-        {/* Search & Re-sync Button Row */}
+        {/* Search & Action Bar */}
         <div className="flex gap-2 mb-4">
           <div className="relative flex-1">
             <svg viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4 text-gray-400 absolute left-3.5 top-1/2 -translate-y-1/2">
@@ -321,8 +460,8 @@ export default function AuditPage() {
           <button
             onClick={() => fetchLogs(true)}
             disabled={isRefreshing || loading}
-            className="h-11 px-3 bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 rounded-2xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm active:scale-95 transition-all shrink-0"
-            title="Tarik data terbaru dari Google Sheets"
+            className="h-11 px-3.5 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm active:scale-95 transition-all shrink-0"
+            title="Klik untuk memperbarui data langsung dari Google Sheets"
           >
             <svg
               viewBox="0 0 24 24"
@@ -331,11 +470,11 @@ export default function AuditPage() {
               strokeWidth="2.5"
               strokeLinecap="round"
               strokeLinejoin="round"
-              className={`w-4 h-4 text-blue-600 ${isRefreshing ? 'animate-spin' : ''}`}
+              className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`}
             >
               <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67" />
             </svg>
-            <span>Sinkron</span>
+            <span>{isRefreshing ? 'Mengupdate...' : 'Update'}</span>
           </button>
         </div>
 
@@ -368,7 +507,12 @@ export default function AuditPage() {
                 {filtered.length} Aktivitas
               </span>
             </div>
-            <span className="text-[10px] text-gray-400 font-medium">WITA (Asia/Makassar)</span>
+            <button
+              onClick={() => fetchLogs(true)}
+              className="text-[10px] text-blue-600 hover:text-blue-800 font-bold flex items-center gap-1"
+            >
+              <span>Refresh</span> ↻
+            </button>
           </div>
 
           {loading ? (
@@ -392,16 +536,14 @@ export default function AuditPage() {
               </div>
               <p className="text-sm font-bold text-gray-700">Tidak ada riwayat ditemukan</p>
               <p className="text-xs text-gray-400 mt-1">
-                {search ? 'Tidak ada catatan yang cocok dengan pencarian Anda.' : 'Data audit akan muncul secara otomatis setiap kali Anda menyimpan meter, fuel, opex, atau anggaran.'}
+                {search ? 'Tidak ada catatan yang cocok dengan pencarian Anda.' : 'Data jejak audit akan muncul secara otomatis saat data dicatat.'}
               </p>
-              {search && (
-                <button
-                  onClick={() => setSearch('')}
-                  className="mt-3 px-3 py-1 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl text-xs font-bold transition-colors"
-                >
-                  Reset Pencarian
-                </button>
-              )}
+              <button
+                onClick={() => fetchLogs(true)}
+                className="mt-3 px-4 py-2 bg-blue-600 text-white rounded-xl text-xs font-bold shadow-md shadow-blue-200 active:scale-95 transition-all"
+              >
+                Klik untuk Update Data Sekarang
+              </button>
             </div>
           ) : (
             <div className="divide-y divide-gray-100">
@@ -467,10 +609,30 @@ export default function AuditPage() {
                           </div>
                         )}
 
-                        {/* User Footnote */}
-                        <div className="flex items-center justify-between text-[10px] text-gray-400 mt-1.5 pt-1 border-t border-gray-50">
-                          <span>Oleh: <strong className="text-gray-500">{log.userEmail || 'Supervisor'}</strong></span>
-                          <span className="font-mono text-[9px] text-gray-300">{log.id}</span>
+                        {/* Action Buttons Row */}
+                        <div className="flex items-center justify-between text-[10px] text-gray-400 mt-2 pt-1.5 border-t border-gray-50">
+                          <span>Oleh: <strong className="text-gray-600">{log.userEmail || 'Supervisor'}</strong></span>
+                          
+                          {/* Tombol Update Fungsional untuk setiap baris log */}
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => handleOpenUpdateModal(log)}
+                              className="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-lg font-bold text-[10px] flex items-center gap-1 transition-colors active:scale-95"
+                              title="Update atau koreksi catatan operasional ini"
+                            >
+                              <svg viewBox="0 0 24 24" fill="currentColor" className="w-3 h-3">
+                                <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34a.9959.9959 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" />
+                              </svg>
+                              <span>Update</span>
+                            </button>
+                            <Link
+                              href={`/input-meter`}
+                              className="px-2 py-1 bg-gray-50 hover:bg-gray-100 text-gray-600 border border-gray-200 rounded-lg font-semibold text-[10px] transition-colors"
+                            >
+                              Form
+                            </Link>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -507,6 +669,157 @@ export default function AuditPage() {
           </div>
         </div>
       </main>
+
+      {/* MODAL: UPDATE / KOREKSI CATATAN OPERASIONAL */}
+      {updateModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-sm w-full p-5 shadow-2xl border border-gray-100 animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between border-b border-gray-100 pb-3 mb-4">
+              <div>
+                <span className="text-[10px] font-bold text-blue-600 uppercase tracking-wider">
+                  Update Catatan Operasional
+                </span>
+                <h3 className="text-base font-black text-gray-900">
+                  {editingLog?.recordId || editingLog?.dataType || 'Catatan'}
+                </h3>
+              </div>
+              <button
+                onClick={() => setUpdateModalOpen(false)}
+                className="w-8 h-8 rounded-full bg-gray-100 text-gray-500 hover:bg-gray-200 flex items-center justify-center font-bold text-sm"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveUpdate} className="space-y-3">
+              <div>
+                <label className="text-[11px] font-bold text-gray-700 block mb-1">Tanggal</label>
+                <input
+                  type="date"
+                  value={formDate}
+                  onChange={(e) => setFormDate(e.target.value)}
+                  required
+                  className="w-full h-10 bg-gray-50 border border-gray-200 rounded-xl px-3 text-xs font-bold text-gray-900 focus:outline-none focus:border-blue-500"
+                />
+              </div>
+
+              {/* Form Input Sesuai DataType */}
+              {(!editingLog?.dataType || editingLog?.dataType === 'meter' || editingLog?.dataType === 'electricity') && (
+                <>
+                  <div>
+                    <label className="text-[11px] font-bold text-gray-700 block mb-1">
+                      Total Pemakaian Listrik (kWh)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={formElec}
+                      onChange={(e) => setFormElec(e.target.value)}
+                      placeholder="Contoh: 3457.54"
+                      className="w-full h-10 bg-gray-50 border border-gray-200 rounded-xl px-3 text-xs font-bold text-gray-900 focus:outline-none focus:border-amber-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-bold text-gray-700 block mb-1">
+                      Konsumsi Air Bersih (m³)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={formWater}
+                      onChange={(e) => setFormWater(e.target.value)}
+                      placeholder="Contoh: 12.5"
+                      className="w-full h-10 bg-gray-50 border border-gray-200 rounded-xl px-3 text-xs font-bold text-gray-900 focus:outline-none focus:border-sky-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-bold text-gray-700 block mb-1">
+                      Pemakaian Gas (m³)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={formGas}
+                      onChange={(e) => setFormGas(e.target.value)}
+                      placeholder="Contoh: 8.2"
+                      className="w-full h-10 bg-gray-50 border border-gray-200 rounded-xl px-3 text-xs font-bold text-gray-900 focus:outline-none focus:border-indigo-500"
+                    />
+                  </div>
+                </>
+              )}
+
+              {editingLog?.dataType === 'fuel' && (
+                <div>
+                  <label className="text-[11px] font-bold text-gray-700 block mb-1">
+                    Konsumsi Solar Genset (Liter)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={formFuel}
+                    onChange={(e) => setFormFuel(e.target.value)}
+                    placeholder="Contoh: 25"
+                    className="w-full h-10 bg-gray-50 border border-gray-200 rounded-xl px-3 text-xs font-bold text-gray-900 focus:outline-none focus:border-orange-500"
+                  />
+                </div>
+              )}
+
+              {editingLog?.dataType === 'opex' && (
+                <div>
+                  <label className="text-[11px] font-bold text-gray-700 block mb-1">
+                    Total Kasir Operasional (Rp)
+                  </label>
+                  <input
+                    type="number"
+                    value={formOpex}
+                    onChange={(e) => setFormOpex(e.target.value)}
+                    placeholder="Contoh: 1720000"
+                    className="w-full h-10 bg-gray-50 border border-gray-200 rounded-xl px-3 text-xs font-bold text-gray-900 focus:outline-none focus:border-purple-500"
+                  />
+                </div>
+              )}
+
+              <div>
+                <label className="text-[11px] font-bold text-gray-700 block mb-1">
+                  Alasan Koreksi / Update
+                </label>
+                <input
+                  type="text"
+                  value={formReason}
+                  onChange={(e) => setFormReason(e.target.value)}
+                  placeholder="Contoh: Koreksi salah catat digit meteran"
+                  required
+                  className="w-full h-10 bg-gray-50 border border-gray-200 rounded-xl px-3 text-xs text-gray-900 focus:outline-none focus:border-blue-500"
+                />
+              </div>
+
+              <div className="pt-2 flex gap-2">
+                <button
+                  type="submit"
+                  disabled={isUpdating}
+                  className="flex-1 h-11 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-md shadow-blue-200 active:scale-95 transition-all flex items-center justify-center gap-1.5"
+                >
+                  {isUpdating ? (
+                    <>
+                      <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      <span>Menyimpan...</span>
+                    </>
+                  ) : (
+                    <span>Simpan Update</span>
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setUpdateModalOpen(false)}
+                  className="px-4 h-11 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl text-xs font-bold transition-colors"
+                >
+                  Batal
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       <BottomNav />
     </div>

@@ -317,11 +317,16 @@ export function evaluateSpikeAlert(
 }
 
 /**
- * Currency Formatter (IDR)
+ * Currency Formatter (IDR) with 2 decimal places (dua angka di belakang koma)
+ * Contoh: Rp 15.000.000,00 atau Rp 2.005,00
  */
 export function formatRupiah(amount: number | null | undefined): string {
-  if (amount === null || amount === undefined || isNaN(amount)) return 'Rp 0';
-  return `Rp ${Math.round(amount).toLocaleString('id-ID')}`;
+  if (amount === null || amount === undefined || isNaN(amount)) return 'Rp 0,00';
+  const num = Number(amount);
+  return `Rp ${num.toLocaleString('id-ID', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
 }
 
 /**

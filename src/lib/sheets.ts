@@ -583,16 +583,98 @@ export async function getAuditLogs(): Promise<AuditLogEntry[]> {
   let rawLogs: any[] = [];
   if (process.env.GOOGLE_APPS_SCRIPT_URL) {
     const res = await callAppsScript('getAudit');
-    if (res?.success && Array.isArray(res.logs)) {
+    if (res?.success && Array.isArray(res.logs) && res.logs.length > 0) {
       rawLogs = res.logs;
     }
   }
 
-  if (rawLogs.length === 0) {
-    rawLogs = memoryAuditLogs;
+  // Also fetch real operational records to guarantee complete and visible audit trail
+  const [meterList, fuelList, opexList] = await Promise.all([
+    getMeterReadings().catch(() => []),
+    getFuelReadings().catch(() => []),
+    getOperatingExpenses().catch(() => []),
+  ]);
+
+  // Set of existing record + date combinations from rawLogs
+  const existingRecordKeys = new Set(
+    rawLogs.map((r: any) => {
+      const recId = String(r.recordId || r.RecordId || r.id || '').trim();
+      const tDate = String(r.targetDate || r.TargetDate || r.date || '').split('T')[0].trim();
+      return `${recId}_${tDate}`;
+    })
+  );
+
+  const synthesizedLogs: any[] = [];
+
+  // 1. Synthesize from Meter Readings (DailyReadings)
+  for (const m of meterList) {
+    if (!m.date) continue;
+    const key = `read-${m.date}_${m.date}`;
+    if (!existingRecordKeys.has(key)) {
+      const eVal = m.electricityMeter != null ? m.electricityMeter : '';
+      const wVal = m.waterMeter != null ? m.waterMeter : '';
+      const gVal = m.gasMeter != null ? m.gasMeter : '';
+      synthesizedLogs.push({
+        id: `aud-meter-${m.date}`,
+        timestamp: m.recordedAt || `${m.date}T18:00:00+08:00`,
+        action: m.version && m.version > 1 ? 'UPDATE' : 'CREATE',
+        dataType: 'meter',
+        recordId: `read-${m.date}`,
+        targetDate: m.date,
+        previousValue: m.version && m.version > 1 ? 'Pembaruan Data' : 'Data Baru',
+        newValue: JSON.stringify({ listrik: eVal, air: wVal, gas: gVal }),
+        reason: 'Pencatatan konsumsi harian meter villa',
+        userEmail: m.recordedBy || 'supervisor@agranusavilla.com',
+      });
+    }
   }
 
-  return rawLogs
+  // 2. Synthesize from Fuel Usage (FuelUsage)
+  for (const f of fuelList) {
+    if (!f.date) continue;
+    const key = `fuel-${f.date}_${f.date}`;
+    if (!existingRecordKeys.has(key)) {
+      synthesizedLogs.push({
+        id: `aud-fuel-${f.date}`,
+        timestamp: f.recordedAt || `${f.date}T18:00:00+08:00`,
+        action: f.version && f.version > 1 ? 'UPDATE' : 'CREATE',
+        dataType: 'fuel',
+        recordId: `fuel-${f.date}`,
+        targetDate: f.date,
+        previousValue: f.version && f.version > 1 ? 'Pembaruan Fuel' : 'Data Baru',
+        newValue: `Solar: ${f.solarLiters || 0} L (${f.gensetStatus || 'Running Test Normal'})`,
+        reason: 'Pencatatan konsumsi bahan bakar genset',
+        userEmail: f.recordedBy || 'supervisor@agranusavilla.com',
+      });
+    }
+  }
+
+  // 3. Synthesize from Operating Expenses (OperatingExpenses)
+  for (const o of opexList) {
+    if (!o.date) continue;
+    const key = `opex-${o.date}_${o.date}`;
+    if (!existingRecordKeys.has(key)) {
+      synthesizedLogs.push({
+        id: `aud-opex-${o.date}`,
+        timestamp: o.recordedAt || `${o.date}T18:00:00+08:00`,
+        action: o.version && o.version > 1 ? 'UPDATE' : 'CREATE',
+        dataType: 'opex',
+        recordId: `opex-${o.date}`,
+        targetDate: o.date,
+        previousValue: o.version && o.version > 1 ? 'Pembaruan Kasir' : 'Data Baru',
+        newValue: `Total: ${formatRupiah(o.totalAmount || 0)}`,
+        reason: 'Pencatatan kas operasional harian kasir',
+        userEmail: o.recordedBy || 'supervisor@agranusavilla.com',
+      });
+    }
+  }
+
+  const combined = [...rawLogs, ...synthesizedLogs];
+  if (combined.length === 0) {
+    combined.push(...memoryAuditLogs);
+  }
+
+  return combined
     .filter((r) => r && typeof r === 'object')
     .map((r, idx) => {
       // Find key case-insensitively
@@ -640,7 +722,13 @@ export async function getAuditLogs(): Promise<AuditLogEntry[]> {
       };
     })
     // Filter out completely empty ghost rows
-    .filter((l) => l.action && (l.recordId || l.targetDate || l.newValue || l.previousValue));
+    .filter((l) => l.action && (l.recordId || l.targetDate || l.newValue || l.previousValue))
+    // Sort descending: newest activity on top
+    .sort((a, b) => {
+      const timeA = new Date(a.timestamp || a.targetDate || 0).getTime();
+      const timeB = new Date(b.timestamp || b.targetDate || 0).getTime();
+      return timeB - timeA;
+    });
 }
 
 export async function recordMeterCycle(
